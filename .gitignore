@@ -7,11 +7,15 @@
 *.log
 model-calls.jsonl
 
+# Node (PoCs / tooling)
+node_modules/
+**/node_modules/
+*.tsbuildinfo
+# PoC build output
+poc/**/dist/
+
 # Demo video (too large for GitHub)
 /demo/
 
-# Local memory and planning docs (do not push)
+# Local memory docs (do not push)
 /MEMORY.md
-/Sui_Plan.md
-/技术文档.md
-/Sui_DeFi_Research.md

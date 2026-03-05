@@ -1,4 +1,4 @@
-# Self-Driving Yield Engine
+# Self-Driving Yield Engine (Sui Move)
 
 <p align="center">
   <strong>An autonomous yield vault that hedges itself</strong>
@@ -6,10 +6,10 @@
 
 <p align="center">
   <a href="https://www.youtube.com/watch?v=rdQyEShM0vs">
-    <img src="https://img.shields.io/badge/Demo-Video-red?style=for-the-badge&logo=youtube" alt="Demo Video">
+  <img src="https://img.shields.io/badge/Demo-Video-red?style=for-the-badge&logo=youtube" alt="Demo Video">
   </a>
   <img src="https://img.shields.io/badge/Tests-40%2F40%20Passing-brightgreen?style=for-the-badge" alt="Tests">
-  <img src="https://img.shields.io/badge/Platform-BNB%20Chain-yellow?style=for-the-badge" alt="Platform">
+  <img src="https://img.shields.io/badge/Platform-Sui%20Move-yellow?style=for-the-badge" alt="Platform">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License">
 </p>
 
@@ -17,19 +17,24 @@
 
 ## What is this?
 
-An **autonomous, non-custodial yield engine** for BNB Chain that uses **Aster ALP as both a yield source AND a natural hedge** against LP impermanent loss.
+An **autonomous, non-custodial yield engine** migrating to **Sui Move**.
 
-**Key insight**: ALP earns more when markets are volatile — naturally offsetting LP losses during market stress.
+**Key insight** (Sui version): a vault can **adapt to volatility** and manage risk automatically:
+- In calm markets: allocate more to fee-generating liquidity (CLMM LP).
+- In stressed markets: rotate into safer carry (USDC lending) and reduce risky exposure.
+- Optional: use **on-chain perps** to hedge delta exposure (where composable/permissionless).
 
 ```
      CALM MARKET          STORM MARKET
      ┌─────────┐          ┌─────────┐
-LP   │  ████   │ High     │  ██     │ IL loss
-ALP  │  ███    │ Stable   │  ██████ │ High yield!
+LP   │  ████   │ Fees     │  ██     │ Reduce LP / unwind
+Carry│  ███    │ Stable   │  █████  │ Lending-first defense
      └─────────┘          └─────────┘
      
                     → Auto rebalance ←
 ```
+
+SSOT (Single Source of Truth): `技术文档.md`
 
 ## Demo Video
 
@@ -39,7 +44,7 @@ ALP  │  ███    │ Stable   │  ██████ │ High yield!
 
 ## Key Ideas
 
-- Dual Engine: ALP is both a yield source and a volatility hedge.
+- Volatility-aware allocation: CALM / NORMAL / STORM regimes.
 
 - Regime Switching: CALM / NORMAL / STORM allocations shift automatically.
 
@@ -64,21 +69,24 @@ ALP  │  ███    │ Stable   │  ██████ │ High yield!
 
 - Resilience: ONLY_UNWIND risk mode, partial withdrawals, slippage/deadline guards.
 
-Assumptions and mitigations are expanded in `THREAT_MODEL.md` and `ECONOMICS.md`.
+Assumptions and mitigations are expanded in `技术文档.md` and `THREAT_MODEL.md`.
 
 
 ## Hackathon Pillars
 
-- Integrate: ALP + Pancake V2 + 1001x adapters.
+- Integrate (Sui): Pyth + Cetus CLMM + Lending + Aftermath Perps.
 
-- Stack: ALP yield + LP fees + hedge funding.
+- Stack: lending carry + LP fees + hedge/funding dynamics.
 
 - Automate: permissionless `cycle()` with bounded bounty.
 
 - Protect: TWAP guardrails, flash atomicity, and risk mode safeguards.
 
 
-## Implementation Notes
+## Legacy Implementation Notes (BNB Prototype)
+
+> ⚠️ These notes reference the original BNB Chain prototype (ALP / Pancake / 1001x).
+> The current Sui Move SSOT is `技术文档.md`.
 
 - LP rebalancing uses on-chain swaps when the base/quote ratio is off target.
 
@@ -94,16 +102,16 @@ Assumptions and mitigations are expanded in `THREAT_MODEL.md` and `ECONOMICS.md`
 ## Architecture (High-Level)
 
 ```
-User (USDT)
-  -> EngineVault (ERC-4626 style)
-     -> ALP Adapter (AsterDEX Earn)
-     -> Pancake V2 Adapter (LP + Flash Swap)
-     -> 1001x Adapter (Delta Hedge)
-     -> VolatilityOracle (TWAP)
-     -> WithdrawalQueue (permissionless claim)
+User (Native USDC)
+  -> EngineVault (Sui shared object + Coin<SDYE> shares)
+     -> yield_source (Lending carry + optional LST carry)
+     -> cetus_amm (CLMM LP)
+     -> perp_hedge (Aftermath Perps)
+     -> oracle (Pyth pull + TWAP vol)
+     -> queue (withdraw requests + permissionless claim)
 ```
 
-### `cycle()` Flow (Mermaid)
+### Legacy `cycle()` Flow (BNB Prototype, Mermaid)
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"fontFamily":"ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace","lineColor":"#475569","primaryColor":"#e8f3ff","primaryBorderColor":"#2563eb","primaryTextColor":"#0f172a"}}}%%
