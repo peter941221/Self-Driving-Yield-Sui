@@ -1,0 +1,10 @@
+# GitHub Linguist overrides.
+#
+# This repo is migrating from legacy Solidity (BNB Chain) to Sui Move. If we keep the
+# Solidity code for reference, it will dominate the language stats. Mark it as vendored
+# so the repo language bar reflects the current Move work.
+contracts/** linguist-vendored
+test/** linguist-vendored
+
+# Ensure `.move` files are counted as Move.
+*.move linguist-language=Move

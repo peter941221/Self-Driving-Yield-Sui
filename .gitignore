@@ -19,3 +19,8 @@ poc/**/dist/
 
 # Local memory docs (do not push)
 /MEMORY.md
+
+# Sui Move build artifacts
+/sui/build/
+/sui/.trace
+/sui/.coverage_map.mvcov
