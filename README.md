@@ -1,7 +1,7 @@
 # Self-Driving Yield Engine (Sui Move)
 
 <p align="center">
-  <strong>An autonomous yield vault that hedges itself</strong>
+  <strong>Autonomous yield routing, queue-aware liquidity, and regime-driven risk control on Sui.</strong>
 </p>
 
 <p align="center">
@@ -9,79 +9,476 @@
     <img src="https://img.shields.io/badge/Demo-Video-red?style=for-the-badge&logo=youtube" alt="Demo Video">
   </a>
   <img src="https://img.shields.io/badge/Platform-Sui%20Move-yellow?style=for-the-badge" alt="Platform">
+  <img src="https://img.shields.io/badge/Stage-P4%20Ready-brightgreen?style=for-the-badge" alt="Stage">
   <img src="https://img.shields.io/badge/Sui%20Framework-testnet%20%40%204e8aa9e-blue?style=for-the-badge" alt="Sui Framework">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License">
 </p>
 
 ---
 
-## What is this?
+## What This Project Does
 
-An **autonomous, non-custodial yield vault** written in **Sui Move (edition 2024)**.
+`Self-Driving Yield` is a **generic Sui Move vault** that:
 
-Core loop:
-- record price snapshots → compute **TWAP** (time-weighted average price) and a **volatility regime** (CALM/NORMAL/STORM)
-- shift target allocations (yield / LP / buffer) based on regime
-- process withdrawals via an on-chain queue
-- pay a bounded bounty to permissionless `cycle()` callers
+- accepts a base asset `Coin<BASE>`
+- mints `SDYE` shares
+- samples price snapshots and computes a volatility regime
+- rebalances among LP / yield / hedge buckets
+- processes queued withdrawals with bounded caller bounty
+- degrades into `OnlyUnwind` during stress and restores only after safe cycles
 
+In plain English:
+
+```text
+[Deposit BASE]
+      |
+      v
+[Mint SDYE shares]
+      |
+      v
+[Permissionless cycle()]
+      |
+      +--> [Read oracle snapshots]
+      +--> [Pick regime: CALM / NORMAL / STORM]
+      +--> [Reserve liquidity for withdrawals]
+      +--> [Rebalance LP / Yield / Hedge]
+      +--> [Pay bounded bounty]
+      |
+      v
+[Users redeem instantly or via queue -> claim()]
 ```
-     CALM MARKET (low vol)      STORM MARKET (high vol)
-     ┌───────────────┐         ┌──────────────────────┐
-LP   │  ██████  Fees  │         │  ██  Reduce LP risk  │
-Carry│  ███     Stable│         │  █████  Carry-first  │
-     └───────────────┘         └──────────────────────┘
-                     → Auto rebalance ←
+
+---
+
+## Why It Exists
+
+Most on-chain vaults optimize only for yield. This one optimizes for **yield + liquidity + survivability**.
+
+```text
+                    +---------------------------+
+                    |  Self-Driving Yield Vault |
+                    +-------------+-------------+
+                                  |
+         +------------------------+------------------------+
+         |                        |                        |
+         v                        v                        v
+ [Yield Seeking]           [Liquidity Safety]        [Risk Control]
+ LP / lending / carry      queue reserve / unwind     regime + OnlyUnwind
 ```
 
-## Repository Layout
+---
 
+## Core Flow
+
+### 1) User Flow
+
+```text
+(User)
+   |
+   v
+[deposit(BASE)] ---> [Vault treasury]
+   |                      |
+   |                      v
+   |                [cycle() decides allocation]
+   |                      |
+   v                      v
+[receive SDYE]      [LP / Yield / Hedge buckets]
+   |
+   v
+[request_withdraw(SDYE)]
+   |
+   +--> treasury enough? ---- yes ---> [instant redeem]
+   |
+   no
+   |
+   v
+[queue request] --> [cycle() unwinds] --> [claim(BASE)]
 ```
-sui/            # Main Sui Move package (current)
-poc/            # PoCs (TypeScript / Python)
-scripts/        # Local tooling (Python)
+
+### 2) Regime Flow
+
+```text
+[Spot snapshots]
+      |
+      v
+[Oracle TWAP + volatility]
+      |
+      v
+{vol < 1% ?}
+   | yes
+   v
+[CALM]
+   |
+   +--> LP 40% / Yield 57% / Buffer 3%
+   |
+   no
+   |
+   v
+{vol < 3% ?}
+   | yes
+   v
+[NORMAL]
+   |
+   +--> LP 60% / Yield 37% / Buffer 3%
+   |
+   no
+   |
+   v
+[STORM]
+   |
+   +--> LP 80% / Yield 17% / Buffer 3%
 ```
 
-## Sui Framework Version (Testnet)
+### 3) Risk Mode Flow
 
-- `sui/Move.toml` tracks Sui framework `framework/testnet`
-- the exact pinned commit is recorded in `sui/Move.lock`:
-  - `rev = 4e8aa9ee8b307b294cc85baf7d08af1f432e3d93` (short: `4e8aa9e`)
-- toolchain used locally: `sui 1.67.1` (build rev `4e8aa9e…`)
+```text
+[Normal operation]
+      |
+      v
+[Storm / deviation / safety trigger]
+      |
+      v
+[OnlyUnwind]
+      |
+      +--> can reduce exposure
+      +--> cannot re-risk
+      |
+      v
+[Safe cycle #1]
+      |
+      v
+[Still OnlyUnwind]
+      |
+      v
+[Safe cycle #2]
+      |
+      v
+[Restore Normal]
+```
 
-## Quickstart (Sui Move)
+---
+
+## Architecture
+
+```text
+                 +----------------------------------+
+                 |     entrypoints::Vault<BASE>     |
+                 |        (shared object)           |
+                 +----------------+-----------------+
+                                  |
+          +-----------------------+------------------------+
+          |                       |                        |
+          v                       v                        v
++-------------------+   +-------------------+   +-------------------+
+| vault::VaultState |   | oracle::Oracle    |   | queue::Withdrawal |
+| assets / shares   |   | TWAP / regime     |   | pending / ready   |
+| risk mode         |   | samples / vol     |   | locked shares     |
++---------+---------+   +---------+---------+   +---------+---------+
+          |                       |                        |
+          +-----------------------+------------------------+
+                                  |
+                                  v
+                  +---------------+----------------+
+                  |  adapters::cetus / lending /   |
+                  |  perps / rebalancer (P2)       |
+                  +---------------+----------------+
+                                  |
+                                  v
+                    +-------------+-------------+
+                    |  accounting buckets       |
+                    |  LP / Yield / Hedge       |
+                    +---------------------------+
+```
+
+---
+
+## Module Map
+
+| Module | Responsibility |
+|---|---|
+| `vault.move` | share accounting, treasury accounting, risk mode, cycle core |
+| `oracle.move` | snapshots, TWAP, volatility regime |
+| `queue.move` | FIFO withdrawal queue, ready reserve, ownership checks |
+| `entrypoints.move` | shared-object entry surface for deposit / withdraw / claim / cycle |
+| `config.move` | operator parameters, adapter IDs, seal switch, config-level event |
+| `adapters/*.move` | accounting wrappers for Cetus / lending / perps / flash rebalance |
+| `entrypoints.move` + `config.move` events | deposit / withdraw / claim / cycle / config-seal monitoring events |
+
+---
+
+## Current Status
+
+```text
+P1  Core modules + unit tests                  [DONE]
+P2  Strategy orchestration + adapter accounting [DONE]
+P3  Lifecycle + concurrency + safety tests      [DONE locally]
+P4  Deployment readiness artifacts              [DONE]
+```
+
+What is included now:
+
+- `OnlyUnwind` restore gate with `2` safe cycles
+- multi-user queue fairness and conservation tests
+- config freeze support for deployment finalization
+- event surface for monitoring and alerting
+- deploy / monitor / demo scripts for operator workflows
+
+What is still intentionally out of scope for this repo snapshot:
+
+- real live Cetus position-NFT lifecycle integration
+- prover-based formal verification (`sui move prove` not available locally)
+- one-click mainnet publish from CI without operator wallet / gas
+
+---
+
+## Quickstart
+
+### Build and test
 
 ```bash
 cd sui
 sui move build
 sui move test
+sui move test --coverage
+sui move coverage summary
+sui move test --statistics
 ```
 
-Optional:
+### Windows short-path helper
+
+If your Windows path is too long for Move dependencies:
+
+```powershell
+subst X: "C:\AI Projects\Fun Stuff\IndieHacker\Self-Driving-Yield-Sui"
+$env:MOVE_HOME='X:\m'
+cd X:\sui
+sui move test
+subst X: /D
+```
+
+---
+
+## Deployment Readiness (P4)
+
+### P4.1 Params Frozen
+
+`config.move` now supports a **freeze switch**.
+
+```text
+[Create Config]
+      |
+      v
+[Set intervals + adapter IDs]
+      |
+      v
+[seal(AdminCap)]
+      |
+      v
+[All future setters abort]
+```
+
+Why this matters:
+
+- makes final operator intent explicit
+- prevents accidental config drift after launch
+- gives monitoring a strong ?deployment finalized? signal
+
+### P4.2 One-Click Deploy + Init
+
+Use the deploy script:
 
 ```bash
-sui move coverage summary
+python scripts/deploy_sui.py --help
 ```
 
-## Architecture (Sui, high-level)
+Typical flow:
 
+```text
+[Publish package]
+      |
+      v
+[Find SDYE TreasuryCap]
+      |
+      v
+[bootstrap<BASE>()]
+      |
+      +--> create Vault shared object
+      +--> create Queue shared object
+      +--> create Config shared object
+      +--> transfer AdminCap to operator
+      |
+      v
+[Set adapter IDs]
+      |
+      v
+[Freeze config]
+      |
+      v
+[Write manifest JSON to out/deployments/*.json]
 ```
-User (Coin<BASE>)
-  -> entrypoints::Vault<BASE>      (shared object)
-     -> vault::VaultState          (accounting + risk mode)
-     -> oracle::OracleState        (TWAP + regime)
-     -> queue::WithdrawalQueue     (requests -> ready -> claimed)
-     -> adapters/* (P2)            (CLMM / lending / perps / rebalance)
+
+Example:
+
+```bash
+python scripts/deploy_sui.py   --base-type 0xdba34672e30...::usdc::USDC   --min-cycle-interval-ms 60000   --min-snapshot-interval-ms 60000   --cetus-pool-id 0x111   --lending-market-id 0x222   --perps-market-id 0x333   --flashloan-provider-id 0x444
 ```
 
-## Status
+### P4.3 Monitoring + Alerts
 
-- P1 (core modules + tests): done
-- P2 (adapters: CLMM / lending / perps / rebalance): done
-  - done: config wiring + adapter capability gates + Cetus CLMM wrapper (`open/add/remove/swap`)
-  - done: `Vault<BASE>` rebalances LP / Yield / Hedge accounting buckets in `cycle()` and chooses PTB vs flash paths by delta size
-  - done: scenario coverage for Cetus-only and full P2 strategy mix
+Use the monitoring script:
 
-## Legacy Solidity Prototype (BNB Chain)
+```bash
+python scripts/monitor_sui.py --help
+```
 
-This repository previously contained a Foundry-based BNB prototype. It has been moved out to keep this repo focused on Sui Move.
+Event stream:
+
+```text
+[deposit()] ----------> DepositEvent
+[request_withdraw()] -> WithdrawRequestedEvent
+[claim()] ------------> ClaimedEvent
+[cycle()] ------------> CycleEvent
+[seal()] -------------> ConfigFrozenEvent
+```
+
+Alert logic:
+
+```text
+[Latest CycleEvent]
+      |
+      +--> OnlyUnwind == true          -> HIGH
+      +--> ready_usdc > treasury       -> CRIT
+      +--> pending_usdc > treasury     -> WARN
+      +--> no cycle for too long       -> HIGH
+      +--> used_flash == true          -> INFO
+```
+
+### P4.4 Ops Runbook (Minimal)
+
+```text
+If queue pressure rises:
+  1. inspect latest CycleEvent
+  2. compare treasury_usdc vs ready_usdc vs pending_usdc
+  3. call cycle() again if interval allows
+  4. if OnlyUnwind is active, do not attempt re-risking
+
+If regime is storm:
+  1. expect lower LP exposure
+  2. expect unwind-first behavior
+  3. watch safe_cycles_since_storm until restore
+
+If flash path appears repeatedly:
+  1. inspect delta size and queue load
+  2. verify adapter IDs and liquidity assumptions
+  3. consider widening cycle cadence or buffer policy
+```
+
+### P4.5 5-Minute Demo Script
+
+Use the demo automation:
+
+```bash
+python scripts/demo_sui.py --help
+```
+
+Demo flow:
+
+```text
+[split base coin]
+      |
+      v
+[deposit]
+      |
+      v
+[cycle #1 -> deploy]
+      |
+      v
+[request_withdraw]
+      |
+      v
+[cycle #2 -> unwind queue]
+      |
+      v
+[claim]
+```
+
+### P4.6 Mainnet Deploy
+
+This repo now includes the artifacts needed for operator-driven mainnet deployment, but **actual publish still requires**:
+
+- funded mainnet wallet
+- finalized adapter IDs
+- real `Coin<BASE>` choice
+- operator confirmation of gas budgets and permissions
+
+In other words: the repo is **deployment-ready**, but the final mainnet transaction is still an operator action.
+
+---
+
+## Testing Snapshot
+
+Latest local validation after P3/P4 changes:
+
+- `sui move test` -> all tests pass
+- `sui move coverage summary` -> overall coverage is still below the aspirational `95%`
+- strongest module coverage remains on core accounting / queue / oracle / vault paths
+- weakest coverage remains protocol-wrapper territory and live-integration gaps
+
+Testing pyramid used in this repo:
+
+```text
+           /          /P4\      Deploy scripts / monitoring / demo readiness
+         /----        / P3  \    Lifecycle / invariants / concurrency tests
+       /------      /  P2    \   test_scenario integration flows
+     /--------    /   P1     \  unit tests per module
+   /----------  /    P0      \ research / interfaces / economics
+```
+
+---
+
+## Repository Layout
+
+```text
+sui/
+├─ Move.toml
+├─ sources/
+│  ├─ entrypoints.move
+│  ├─ vault.move
+│  ├─ oracle.move
+│  ├─ queue.move
+│  ├─ config.move
+│  └─ adapters/
+└─ tests/
+
+scripts/
+├─ backtest.py
+├─ deploy_sui.py
+├─ monitor_sui.py
+└─ demo_sui.py
+
+poc/
+out/                  # local manifests / generated artifacts (gitignored)
+```
+
+---
+
+## Notes on Legacy Files
+
+Some ignored root-level documents are from an older BSC / Solidity exploration and are **not** the source of truth for the current Sui Move implementation.
+
+Use this README + `sui/` source code as the primary reference.
+
+---
+
+## Next Logical Steps
+
+If you want to keep shipping after P4, the next high-value items are:
+
+```text
+[P5 Live Integration]
+   |
+   +--> real Cetus shared objects
+   +--> real fee collection lifecycle
+   +--> testnet dry-run with live package IDs
+   +--> operator dashboard / hosted alerting
+```

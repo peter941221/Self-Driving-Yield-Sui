@@ -9,11 +9,13 @@ use self_driving_yield::perp_hedge;
 use self_driving_yield::queue;
 use self_driving_yield::rebalancer;
 use self_driving_yield::sdye;
+use self_driving_yield::types;
 use self_driving_yield::vault;
 use self_driving_yield::yield_source;
 use sui::balance;
 use sui::clock;
 use sui::coin;
+use sui::event;
 
 public struct Vault<phantom BASE> has key, store {
     id: UID,
@@ -37,11 +39,56 @@ public struct Vault<phantom BASE> has key, store {
     sdye_treasury: coin::TreasuryCap<sdye::SDYE>,
 }
 
+public struct DepositEvent has copy, drop, store {
+    sender: address,
+    assets_in: u64,
+    shares_out: u64,
+}
+
+public struct WithdrawRequestedEvent has copy, drop, store {
+    sender: address,
+    request_id: u64,
+    shares: u64,
+    queued: bool,
+    instant_assets_out: u64,
+}
+
+public struct ClaimedEvent has copy, drop, store {
+    sender: address,
+    request_id: u64,
+    assets_out: u64,
+}
+
+public struct CycleEvent has copy, drop, store {
+    spot_price: u64,
+    moved_usdc: u64,
+    bounty_usdc: u64,
+    regime_code: u64,
+    only_unwind: bool,
+    safe_cycles_since_storm: u64,
+    total_assets: u64,
+    treasury_usdc: u64,
+    deployed_usdc: u64,
+    ready_usdc: u64,
+    pending_usdc: u64,
+    used_flash: bool,
+}
+
 fun total_deployed_internal<BASE>(v: &Vault<BASE>): u64 {
     let cetus = balance::value(&v.cetus_balance);
     let y = balance::value(&v.yield_balance);
     let hedge = balance::value(&v.hedge_margin_balance);
     math::safe_add(math::safe_add(cetus, y), hedge)
+}
+
+fun regime_code(r: &types::Regime): u64 {
+    if (vault::is_regime_calm(r)) {
+        0
+    } else if (vault::is_regime_normal(r)) {
+        1
+    } else {
+        2
+    }
 }
 
 fun sync_strategy_metadata<BASE>(v: &mut Vault<BASE>, cfg: &config::Config, ts_ms: u64) {
@@ -275,11 +322,13 @@ public fun deposit<BASE>(
     _clock: &clock::Clock,
     ctx: &mut TxContext,
 ): coin::Coin<sdye::SDYE> {
+    let sender = tx_context::sender(ctx);
     let assets_in = coin::value(&base_in);
     coin::put(&mut v.treasury, base_in);
 
     let shares_out = vault::deposit(&mut v.state, assets_in);
     assert_vault_synced(v);
+    event::emit(DepositEvent { sender, assets_in, shares_out });
     sdye::mint_shares(&mut v.sdye_treasury, shares_out, ctx)
 }
 
@@ -309,12 +358,26 @@ public fun request_withdraw<BASE>(
         let base_out_amount = vault::instant_usdc_out(&plan);
         let base_out = coin::take(&mut v.treasury, base_out_amount, ctx);
         assert_vault_synced(v);
+        event::emit(WithdrawRequestedEvent {
+            sender,
+            request_id: 0,
+            shares: shares_amount,
+            queued: false,
+            instant_assets_out: base_out_amount,
+        });
         (plan, option::some(base_out))
     } else {
         let request_id = vault::queued_request_id(&plan);
         let locked = coin::into_balance(shares_in);
         queue::lock_shares_for_new_request(q, request_id, locked);
         assert_vault_synced(v);
+        event::emit(WithdrawRequestedEvent {
+            sender,
+            request_id,
+            shares: shares_amount,
+            queued: true,
+            instant_assets_out: 0,
+        });
         (plan, option::none())
     }
 }
@@ -336,6 +399,7 @@ public fun claim<BASE>(
 
     let base_out = coin::take(&mut v.treasury, base_out_amount, ctx);
     assert_vault_synced(v);
+    event::emit(ClaimedEvent { sender, request_id, assets_out: base_out_amount });
     base_out
 }
 
@@ -375,6 +439,25 @@ public fun cycle<BASE>(
 
     rebalance_strategy_accounting(v, q, cfg, ts_ms);
     assert_vault_synced(v);
+
+    let regime = oracle::current_regime(&v.oracle);
+    let risk_mode = vault::risk_mode(&v.state);
+    let ready_usdc = queue::total_ready_usdc(queue::state(q));
+    let pending_usdc = queue::total_pending_usdc(queue::state(q));
+    event::emit(CycleEvent {
+        spot_price,
+        moved_usdc: moved,
+        bounty_usdc: bounty,
+        regime_code: regime_code(&regime),
+        only_unwind: vault::is_only_unwind(&risk_mode),
+        safe_cycles_since_storm: vault::safe_cycles_since_storm(&v.state),
+        total_assets: vault::total_assets(&v.state),
+        treasury_usdc: vault::treasury_usdc(&v.state),
+        deployed_usdc: total_deployed_internal(v),
+        ready_usdc,
+        pending_usdc,
+        used_flash: v.last_rebalance_used_flash,
+    });
     (moved, bounty_opt)
 }
 
