@@ -7,8 +7,10 @@ use self_driving_yield::queue;
 use self_driving_yield::types;
 
 const MAX_BOUNTY_BPS: u64 = 5;
+const SAFE_CYCLES_TO_RESTORE: u64 = 2;
 
 public fun max_bounty_bps(): u64 { MAX_BOUNTY_BPS }
+public fun safe_cycles_to_restore(): u64 { SAFE_CYCLES_TO_RESTORE }
 
 public fun regime_calm(): types::Regime { types::regime_calm() }
 public fun regime_normal(): types::Regime { types::regime_normal() }
@@ -46,6 +48,7 @@ public struct VaultState has store, drop {
     total_shares: u64,
     treasury_usdc: u64,
     risk_mode: types::RiskMode,
+    safe_cycles_since_storm: u64,
     last_cycle_ts_ms: u64,
 }
 
@@ -55,6 +58,7 @@ public fun new_state(): VaultState {
         total_shares: 0,
         treasury_usdc: 0,
         risk_mode: types::risk_normal(),
+        safe_cycles_since_storm: SAFE_CYCLES_TO_RESTORE,
         last_cycle_ts_ms: 0,
     }
 }
@@ -63,9 +67,17 @@ public fun total_assets(s: &VaultState): u64 { s.total_assets }
 public fun total_shares(s: &VaultState): u64 { s.total_shares }
 public fun treasury_usdc(s: &VaultState): u64 { s.treasury_usdc }
 public fun risk_mode(s: &VaultState): types::RiskMode { s.risk_mode }
+public fun safe_cycles_since_storm(s: &VaultState): u64 { s.safe_cycles_since_storm }
 public fun last_cycle_ts_ms(s: &VaultState): u64 { s.last_cycle_ts_ms }
 
-public fun set_risk_mode(s: &mut VaultState, m: types::RiskMode) { s.risk_mode = m }
+public fun set_risk_mode(s: &mut VaultState, m: types::RiskMode) {
+    s.risk_mode = m;
+    if (types::is_only_unwind(&s.risk_mode)) {
+        s.safe_cycles_since_storm = 0;
+    } else {
+        s.safe_cycles_since_storm = SAFE_CYCLES_TO_RESTORE;
+    }
+}
 
 public(package) fun set_treasury_usdc_for_testing(s: &mut VaultState, v: u64) {
     s.treasury_usdc = v;
@@ -108,11 +120,21 @@ public fun cycle(
     let _ = oracle::record_snapshot_with_ts(o, spot_price, ts_ms, min_snapshot_interval_ms);
     let regime = oracle::current_regime(o);
 
-    // Phase 4: minimal risk control (storm => OnlyUnwind).
+    // Phase 4: minimal risk control (storm => OnlyUnwind, restore only after N safe cycles).
     if (types::is_regime_storm(&regime)) {
         s.risk_mode = types::risk_only_unwind();
+        s.safe_cycles_since_storm = 0;
     } else {
-        s.risk_mode = types::risk_normal();
+        if (types::is_only_unwind(&s.risk_mode)) {
+            s.safe_cycles_since_storm = math::safe_add(s.safe_cycles_since_storm, 1);
+            if (s.safe_cycles_since_storm >= SAFE_CYCLES_TO_RESTORE) {
+                s.risk_mode = types::risk_normal();
+                s.safe_cycles_since_storm = SAFE_CYCLES_TO_RESTORE;
+            }
+        } else {
+            s.risk_mode = types::risk_normal();
+            s.safe_cycles_since_storm = SAFE_CYCLES_TO_RESTORE;
+        }
     };
 
     // Phase 6: process withdrawal queue, reserving ready balances.

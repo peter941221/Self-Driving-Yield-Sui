@@ -379,3 +379,53 @@ fun cycle_never_spends_reserved_ready_withdrawals() {
     assert!(usdc_out == 99, 0);
     assert!(vault::treasury_usdc(&s) == 0, 0);
 }
+
+#[test]
+fun only_unwind_requires_two_safe_cycles_to_restore() {
+    let mut s = vault::new_state();
+    let mut q = queue::new_state();
+    let mut o = oracle::new();
+
+    let p = oracle::price_precision();
+    let hi = p + 30_000_000;
+    let lo = p - 30_000_000;
+
+    let mut ts: u64 = 0;
+    let mut i: u64 = 0;
+    while (i < 12) {
+        ts = ts + 1000;
+        let price = if (i % 2 == 0) { hi } else { lo };
+        vault::cycle(&mut s, &mut q, &mut o, price, ts, 0, 0);
+        i = i + 1;
+    };
+
+    assert!(vault::is_only_unwind(&vault::risk_mode(&s)), 0);
+    assert!(vault::safe_cycles_since_storm(&s) == 0, 0);
+
+    ts = ts + 1000;
+    vault::cycle(&mut s, &mut q, &mut o, p, ts, 0, 0);
+    assert!(vault::is_only_unwind(&vault::risk_mode(&s)), 0);
+    assert!(vault::safe_cycles_since_storm(&s) == 1, 0);
+
+    ts = ts + 1000;
+    vault::cycle(&mut s, &mut q, &mut o, p, ts, 0, 0);
+    assert!(!vault::is_only_unwind(&vault::risk_mode(&s)), 0);
+    assert!(vault::safe_cycles_since_storm(&s) == vault::safe_cycles_to_restore(), 0);
+}
+
+#[test]
+fun calm_normal_storm_calm_allocation_path_is_consistent() {
+    let calm = vault::regime_calm();
+    let normal = vault::regime_normal();
+    let storm = vault::regime_storm();
+
+    let (y_calm, lp_calm, buf_calm) = vault::get_allocation(&calm);
+    let (y_normal, lp_normal, buf_normal) = vault::get_allocation(&normal);
+    let (y_storm, lp_storm, buf_storm) = vault::get_allocation(&storm);
+
+    assert!(lp_calm > y_calm, 0);
+    assert!(y_normal > lp_normal, 0);
+    assert!(y_storm > y_normal, 0);
+    assert!(lp_storm < lp_normal, 0);
+    assert!(buf_calm == 300 && buf_normal == 300 && buf_storm == 300, 0);
+}

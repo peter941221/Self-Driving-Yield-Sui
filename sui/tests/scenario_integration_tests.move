@@ -11,6 +11,27 @@ use self_driving_yield::usdc;
 use self_driving_yield::queue;
 use self_driving_yield::vault;
 
+fun assert_balance_invariant(v: &entrypoints::Vault<usdc::USDC>) {
+    assert!(
+        entrypoints::total_assets(v) == entrypoints::treasury_usdc(v) + entrypoints::deployed_balance(v),
+        0,
+    );
+}
+
+fun active_locked_shares(q: &queue::WithdrawalQueue, max_id: u64): u64 {
+    let mut total = 0;
+    let mut i = 0;
+    while (i < max_id) {
+        let req = queue::borrow_request(queue::state(q), i);
+        let st = queue::status(req);
+        if (!queue::is_claimed(&st)) {
+            total = total + queue::shares(req);
+        };
+        i = i + 1;
+    };
+    total
+}
+
 #[test]
 fun deposit_cycle_withdraw_claim_full_path() {
     let admin = @0x1;
@@ -354,6 +375,325 @@ fun cycle_rebalances_full_p2_strategy_mix() {
         assert!(entrypoints::last_rebalance_used_flash(&v), 0);
 
         test_scenario::return_to_sender(&scenario, cap);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+
+    let _effects = test_scenario::end(scenario);
+}
+
+#[test]
+fun multi_user_queue_preserves_conservation_and_fairness() {
+    let admin = @0x1;
+    let user1 = @0x11;
+    let user2 = @0x12;
+    let user3 = @0x13;
+    let user4 = @0x14;
+    let user5 = @0x15;
+    let mut scenario = test_scenario::begin(admin);
+    test_scenario::create_system_objects(&mut scenario);
+
+    {
+        let sdye_treasury = coin::create_treasury_cap_for_testing<sdye::SDYE>(test_scenario::ctx(&mut scenario));
+        entrypoints::bootstrap<usdc::USDC>(sdye_treasury, 0, 0, test_scenario::ctx(&mut scenario));
+    };
+
+    test_scenario::next_tx(&mut scenario, user1);
+    {
+        let clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let usdc_in = coin::mint_for_testing<usdc::USDC>(1_000, test_scenario::ctx(&mut scenario));
+        let shares = entrypoints::deposit(&mut v, usdc_in, &clock, test_scenario::ctx(&mut scenario));
+        transfer::public_transfer(shares, user1);
+        assert_balance_invariant(&v);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+
+    test_scenario::next_tx(&mut scenario, user2);
+    {
+        let clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let usdc_in = coin::mint_for_testing<usdc::USDC>(1_000, test_scenario::ctx(&mut scenario));
+        let shares = entrypoints::deposit(&mut v, usdc_in, &clock, test_scenario::ctx(&mut scenario));
+        transfer::public_transfer(shares, user2);
+        assert_balance_invariant(&v);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+
+    test_scenario::next_tx(&mut scenario, user3);
+    {
+        let clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let usdc_in = coin::mint_for_testing<usdc::USDC>(1_000, test_scenario::ctx(&mut scenario));
+        let shares = entrypoints::deposit(&mut v, usdc_in, &clock, test_scenario::ctx(&mut scenario));
+        transfer::public_transfer(shares, user3);
+        assert_balance_invariant(&v);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+
+    test_scenario::next_tx(&mut scenario, user4);
+    {
+        let clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let usdc_in = coin::mint_for_testing<usdc::USDC>(1_000, test_scenario::ctx(&mut scenario));
+        let shares = entrypoints::deposit(&mut v, usdc_in, &clock, test_scenario::ctx(&mut scenario));
+        transfer::public_transfer(shares, user4);
+        assert_balance_invariant(&v);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+
+    test_scenario::next_tx(&mut scenario, user5);
+    {
+        let clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let usdc_in = coin::mint_for_testing<usdc::USDC>(1_000, test_scenario::ctx(&mut scenario));
+        let shares = entrypoints::deposit(&mut v, usdc_in, &clock, test_scenario::ctx(&mut scenario));
+        transfer::public_transfer(shares, user5);
+        assert!(entrypoints::total_shares(&v) == 5_000, 0);
+        assert_balance_invariant(&v);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+
+    test_scenario::next_tx(&mut scenario, admin);
+    {
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+        entrypoints::deploy_for_testing(&mut v, 4_500);
+        assert!(entrypoints::treasury_usdc(&v) == 500, 0);
+        assert_balance_invariant(&v);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+
+    // Five users each queue 800 shares; remaining 200 shares each stay user-owned.
+    test_scenario::next_tx(&mut scenario, user1);
+    {
+        let clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let mut shares = test_scenario::take_from_sender<coin::Coin<sdye::SDYE>>(&scenario);
+        let out = coin::split(&mut shares, 800, test_scenario::ctx(&mut scenario));
+        let (plan, base_opt) = entrypoints::request_withdraw(&mut v, &mut q, out, &clock, test_scenario::ctx(&mut scenario));
+        assert!(vault::plan_is_queued(&plan), 0);
+        assert!(vault::queued_request_id(&plan) == 0, 0);
+        option::destroy_none(base_opt);
+        transfer::public_transfer(shares, user1);
+        assert!(entrypoints::total_shares(&v) == 5_000, 0);
+        assert!(active_locked_shares(&q, 1) == 800, 0);
+        assert_balance_invariant(&v);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+
+    test_scenario::next_tx(&mut scenario, user2);
+    {
+        let clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let mut shares = test_scenario::take_from_sender<coin::Coin<sdye::SDYE>>(&scenario);
+        let out = coin::split(&mut shares, 800, test_scenario::ctx(&mut scenario));
+        let (plan, base_opt) = entrypoints::request_withdraw(&mut v, &mut q, out, &clock, test_scenario::ctx(&mut scenario));
+        assert!(vault::queued_request_id(&plan) == 1, 0);
+        option::destroy_none(base_opt);
+        transfer::public_transfer(shares, user2);
+        assert!(active_locked_shares(&q, 2) == 1_600, 0);
+        assert_balance_invariant(&v);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+
+    test_scenario::next_tx(&mut scenario, user3);
+    {
+        let clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let mut shares = test_scenario::take_from_sender<coin::Coin<sdye::SDYE>>(&scenario);
+        let out = coin::split(&mut shares, 800, test_scenario::ctx(&mut scenario));
+        let (plan, base_opt) = entrypoints::request_withdraw(&mut v, &mut q, out, &clock, test_scenario::ctx(&mut scenario));
+        assert!(vault::queued_request_id(&plan) == 2, 0);
+        option::destroy_none(base_opt);
+        transfer::public_transfer(shares, user3);
+        assert!(active_locked_shares(&q, 3) == 2_400, 0);
+        assert_balance_invariant(&v);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+
+    test_scenario::next_tx(&mut scenario, user4);
+    {
+        let clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let mut shares = test_scenario::take_from_sender<coin::Coin<sdye::SDYE>>(&scenario);
+        let out = coin::split(&mut shares, 800, test_scenario::ctx(&mut scenario));
+        let (plan, base_opt) = entrypoints::request_withdraw(&mut v, &mut q, out, &clock, test_scenario::ctx(&mut scenario));
+        assert!(vault::queued_request_id(&plan) == 3, 0);
+        option::destroy_none(base_opt);
+        transfer::public_transfer(shares, user4);
+        assert!(active_locked_shares(&q, 4) == 3_200, 0);
+        assert_balance_invariant(&v);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+
+    test_scenario::next_tx(&mut scenario, user5);
+    {
+        let clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let mut shares = test_scenario::take_from_sender<coin::Coin<sdye::SDYE>>(&scenario);
+        let out = coin::split(&mut shares, 800, test_scenario::ctx(&mut scenario));
+        let (plan, base_opt) = entrypoints::request_withdraw(&mut v, &mut q, out, &clock, test_scenario::ctx(&mut scenario));
+        assert!(vault::queued_request_id(&plan) == 4, 0);
+        option::destroy_none(base_opt);
+        transfer::public_transfer(shares, user5);
+        assert!(queue::total_pending_shares(queue::state(&q)) == 4_000, 0);
+        assert!(active_locked_shares(&q, 5) == 4_000, 0);
+        assert!(entrypoints::total_shares(&v) == 5_000, 0);
+        assert_balance_invariant(&v);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+
+    test_scenario::next_tx(&mut scenario, admin);
+    {
+        let mut clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        clock::set_for_testing(&mut clock, 10_000);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let (moved, bounty_opt) = entrypoints::cycle(&mut v, &mut q, &cfg, 1_000_000_000, &clock, test_scenario::ctx(&mut scenario));
+        assert!(moved == 5, 0);
+        assert!(option::is_none(&bounty_opt), 0);
+        option::destroy_none(bounty_opt);
+        assert!(queue::total_ready_usdc(queue::state(&q)) == 4_000, 0);
+        assert_balance_invariant(&v);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+
+    // Claims preserve fairness: each user gets 800, remaining total shares = 1,000.
+    test_scenario::next_tx(&mut scenario, user1);
+    {
+        let clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let out = entrypoints::claim(&mut v, &mut q, 0, &clock, test_scenario::ctx(&mut scenario));
+        assert!(coin::value(&out) == 800, 0);
+        transfer::public_transfer(out, user1);
+        assert_balance_invariant(&v);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+    test_scenario::next_tx(&mut scenario, user2);
+    {
+        let clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let out = entrypoints::claim(&mut v, &mut q, 1, &clock, test_scenario::ctx(&mut scenario));
+        assert!(coin::value(&out) == 800, 0);
+        transfer::public_transfer(out, user2);
+        assert_balance_invariant(&v);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+    test_scenario::next_tx(&mut scenario, user3);
+    {
+        let clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let out = entrypoints::claim(&mut v, &mut q, 2, &clock, test_scenario::ctx(&mut scenario));
+        assert!(coin::value(&out) == 800, 0);
+        transfer::public_transfer(out, user3);
+        assert_balance_invariant(&v);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+    test_scenario::next_tx(&mut scenario, user4);
+    {
+        let clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let out = entrypoints::claim(&mut v, &mut q, 3, &clock, test_scenario::ctx(&mut scenario));
+        assert!(coin::value(&out) == 800, 0);
+        transfer::public_transfer(out, user4);
+        assert_balance_invariant(&v);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+    test_scenario::next_tx(&mut scenario, user5);
+    {
+        let clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let out = entrypoints::claim(&mut v, &mut q, 4, &clock, test_scenario::ctx(&mut scenario));
+        assert!(coin::value(&out) == 800, 0);
+        transfer::public_transfer(out, user5);
+        assert!(entrypoints::total_shares(&v) == 1_000, 0);
+        assert!(entrypoints::treasury_usdc(&v) == 0, 0);
+        assert!(entrypoints::deployed_balance(&v) == 1_000, 0);
+        assert_balance_invariant(&v);
         test_scenario::return_shared(clock);
         test_scenario::return_shared(v);
         test_scenario::return_shared(q);

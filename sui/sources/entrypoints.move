@@ -216,6 +216,11 @@ fun rebalance_strategy_accounting<BASE>(
 }
 
 public fun has_cetus_position<BASE>(v: &Vault<BASE>): bool { v.cetus_deployed_usdc > 0 }
+public fun total_assets<BASE>(v: &Vault<BASE>): u64 { vault::total_assets(&v.state) }
+public fun total_shares<BASE>(v: &Vault<BASE>): u64 { vault::total_shares(&v.state) }
+public fun treasury_usdc<BASE>(v: &Vault<BASE>): u64 { vault::treasury_usdc(&v.state) }
+public fun is_only_unwind_mode<BASE>(v: &Vault<BASE>): bool { vault::is_only_unwind(&vault::risk_mode(&v.state)) }
+public fun safe_cycles_since_storm<BASE>(v: &Vault<BASE>): u64 { vault::safe_cycles_since_storm(&v.state) }
 public fun cetus_pool_id<BASE>(v: &Vault<BASE>): address { v.cetus_pool_id }
 public fun cetus_deployed_usdc<BASE>(v: &Vault<BASE>): u64 { v.cetus_deployed_usdc }
 public fun cetus_last_rebalance_ts_ms<BASE>(v: &Vault<BASE>): u64 { v.cetus_last_rebalance_ts_ms }
