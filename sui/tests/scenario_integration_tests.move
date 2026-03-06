@@ -298,3 +298,67 @@ fun cycle_auto_deploys_to_cetus_and_unwinds_for_queue() {
 
     let _effects = test_scenario::end(scenario);
 }
+
+#[test]
+fun cycle_rebalances_full_p2_strategy_mix() {
+    let admin = @0x1;
+    let mut scenario = test_scenario::begin(admin);
+    test_scenario::create_system_objects(&mut scenario);
+
+    {
+        let sdye_treasury = coin::create_treasury_cap_for_testing<sdye::SDYE>(test_scenario::ctx(&mut scenario));
+        entrypoints::bootstrap<usdc::USDC>(sdye_treasury, 0, 0, test_scenario::ctx(&mut scenario));
+    };
+    test_scenario::next_tx(&mut scenario, admin);
+
+    {
+        let mut clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        clock::set_for_testing(&mut clock, 1000);
+
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let mut cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let cap = test_scenario::take_from_sender<config::AdminCap>(&scenario);
+
+        config::set_cetus_pool_id(&mut cfg, &cap, @0x111);
+        config::set_lending_market_id(&mut cfg, &cap, @0x222);
+        config::set_perps_market_id(&mut cfg, &cap, @0x333);
+        config::set_flashloan_provider_id(&mut cfg, &cap, @0x444);
+
+        let usdc_in = coin::mint_for_testing<usdc::USDC>(10_000, test_scenario::ctx(&mut scenario));
+        let shares = entrypoints::deposit(&mut v, usdc_in, &clock, test_scenario::ctx(&mut scenario));
+        transfer::public_transfer(shares, admin);
+
+        let (moved, bounty_opt) = entrypoints::cycle(
+            &mut v,
+            &mut q,
+            &cfg,
+            1_000_000_000,
+            &clock,
+            test_scenario::ctx(&mut scenario),
+        );
+        assert!(moved == 0, 0);
+
+        let bounty = option::destroy_some(bounty_opt);
+        assert!(coin::value(&bounty) == 5, 0);
+        transfer::public_transfer(bounty, admin);
+
+        assert!(entrypoints::cetus_pool_id(&v) == @0x111, 0);
+        assert!(entrypoints::cetus_deployed_usdc(&v) == 3698, 0);
+        assert!(entrypoints::yield_receipt_id(&v) == @0x222, 0);
+        assert!(entrypoints::yield_deployed_usdc(&v) == 5814, 0);
+        assert!(entrypoints::hedge_position_id(&v) == @0x333, 0);
+        assert!(entrypoints::hedge_notional_usdc(&v) == 3698, 0);
+        assert!(entrypoints::hedge_margin_usdc(&v) == 184, 0);
+        assert!(entrypoints::deployed_balance(&v) == 9696, 0);
+        assert!(entrypoints::last_rebalance_used_flash(&v), 0);
+
+        test_scenario::return_to_sender(&scenario, cap);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+
+    let _effects = test_scenario::end(scenario);
+}

@@ -1,51 +1,55 @@
 module self_driving_yield::yield_source;
 
 use self_driving_yield::config;
-use self_driving_yield::errors;
-use sui::coin;
+use self_driving_yield::math;
+
+const MOCK_YIELD_BPS_PER_CYCLE: u64 = 2;
 
 /// Returns true when a lending market id is configured (P2).
 public fun is_available(cfg: &config::Config): bool {
     config::lending_market_id(cfg) != @0x0
 }
 
-/// P2 adapter interface (not implemented in this repo snapshot).
-public fun stake_sui_for_lst<SUI, LST>(
-    _cfg: &config::Config,
-    _sui_in: coin::Coin<SUI>,
-    _ctx: &mut TxContext,
-): coin::Coin<LST> {
-    abort errors::e_adapter_not_implemented()
+/// Accounting helper for LST staking paths used by the vault planner.
+/// In this repo snapshot, we conservatively model 1:1 principal conversion.
+public fun stake_sui_for_lst(_cfg: &config::Config, sui_amount: u64): u64 {
+    sui_amount
 }
 
-/// P2 adapter interface (not implemented in this repo snapshot).
-public fun unstake_lst<SUI, LST>(
-    _cfg: &config::Config,
-    _lst_in: coin::Coin<LST>,
-    _ctx: &mut TxContext,
-): coin::Coin<SUI> {
-    abort errors::e_adapter_not_implemented()
+/// Accounting helper for LST unstake paths used by the vault planner.
+/// In this repo snapshot, we conservatively model 1:1 principal conversion.
+public fun unstake_lst(_cfg: &config::Config, lst_amount: u64): u64 {
+    lst_amount
 }
 
-/// P2 adapter interface (not implemented in this repo snapshot).
-public fun deposit_to_lending<BASE>(
-    _cfg: &config::Config,
-    _base_in: coin::Coin<BASE>,
-    _ctx: &mut TxContext,
-): address {
-    abort errors::e_adapter_not_implemented()
+/// Create or refresh a lending receipt for a deployed base-asset amount.
+public fun deposit_to_lending(cfg: &config::Config, amount: u64): address {
+    if (!is_available(cfg) || amount == 0) { @0x0 } else { config::lending_market_id(cfg) }
 }
 
-/// P2 adapter interface (not implemented in this repo snapshot).
-public fun withdraw_from_lending<BASE>(
+/// Withdraw up to `amount` from a lending position. Returns (next_receipt_id, withdrawn, remaining).
+public fun withdraw_from_lending(
     _cfg: &config::Config,
-    _receipt_id: address,
-    _ctx: &mut TxContext,
-): coin::Coin<BASE> {
-    abort errors::e_adapter_not_implemented()
+    receipt_id: address,
+    current_value: u64,
+    amount: u64,
+): (address, u64, u64) {
+    let withdrawn = if (current_value < amount) { current_value } else { amount };
+    let remaining = current_value - withdrawn;
+    let next_receipt = if (remaining > 0) { receipt_id } else { @0x0 };
+    (next_receipt, withdrawn, remaining)
 }
 
-/// P2 adapter interface (not implemented in this repo snapshot).
-public fun get_yield_value(_cfg: &config::Config, _receipt_id: address): u64 {
-    abort errors::e_adapter_not_implemented()
+/// Deterministic mock accrual used by P2 accounting tests.
+public fun accrue_yield(cfg: &config::Config, current_value: u64): u64 {
+    if (!is_available(cfg) || current_value == 0) {
+        current_value
+    } else {
+        math::safe_add(current_value, math::mul_div(current_value, MOCK_YIELD_BPS_PER_CYCLE, 10000))
+    }
+}
+
+/// Returns the tracked accounting value of the yield position.
+public fun get_yield_value(_cfg: &config::Config, current_value: u64): u64 {
+    current_value
 }

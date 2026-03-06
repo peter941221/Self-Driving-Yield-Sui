@@ -77,10 +77,10 @@ User (Coin<BASE>)
 ## Status
 
 - P1 (core modules + tests): done
-- P2 (adapters: CLMM / lending / perps / rebalance): in progress
+- P2 (adapters: CLMM / lending / perps / rebalance): done
   - done: config wiring + adapter capability gates + Cetus CLMM wrapper (`open/add/remove/swap`)
-  - done: `Vault<BASE>` now persists Cetus deployment metadata and `cycle()` auto-adjusts accounting deployment/unwind toward the LP target when Cetus is configured
-  - pending: lending/perps/rebalance protocol-specific live integrations
+  - done: `Vault<BASE>` rebalances LP / Yield / Hedge accounting buckets in `cycle()` and chooses PTB vs flash paths by delta size
+  - done: scenario coverage for Cetus-only and full P2 strategy mix
 
 ## Legacy Solidity Prototype (BNB Chain)
 

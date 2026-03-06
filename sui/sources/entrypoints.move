@@ -5,124 +5,228 @@ use self_driving_yield::config;
 use self_driving_yield::errors;
 use self_driving_yield::math;
 use self_driving_yield::oracle;
+use self_driving_yield::perp_hedge;
 use self_driving_yield::queue;
+use self_driving_yield::rebalancer;
 use self_driving_yield::sdye;
 use self_driving_yield::vault;
+use self_driving_yield::yield_source;
 use sui::balance;
 use sui::clock;
 use sui::coin;
 
-/// Shared vault object holding balances + pure accounting state.
-///
-/// Type parameter `BASE` is the base asset (e.g. native USDC on mainnet).
 public struct Vault<phantom BASE> has key, store {
     id: UID,
     state: vault::VaultState,
     oracle: oracle::OracleState,
     treasury: balance::Balance<BASE>,
-    deployed: balance::Balance<BASE>,
+    cetus_balance: balance::Balance<BASE>,
+    yield_balance: balance::Balance<BASE>,
+    hedge_margin_balance: balance::Balance<BASE>,
     cetus_pool_id: address,
     cetus_deployed_usdc: u64,
     cetus_last_rebalance_ts_ms: u64,
+    yield_receipt_id: address,
+    yield_deployed_usdc: u64,
+    yield_last_rebalance_ts_ms: u64,
+    hedge_position_id: address,
+    hedge_notional_usdc: u64,
+    hedge_margin_usdc: u64,
+    hedge_last_rebalance_ts_ms: u64,
+    last_rebalance_used_flash: bool,
     sdye_treasury: coin::TreasuryCap<sdye::SDYE>,
+}
+
+fun total_deployed_internal<BASE>(v: &Vault<BASE>): u64 {
+    let cetus = balance::value(&v.cetus_balance);
+    let y = balance::value(&v.yield_balance);
+    let hedge = balance::value(&v.hedge_margin_balance);
+    math::safe_add(math::safe_add(cetus, y), hedge)
+}
+
+fun sync_strategy_metadata<BASE>(v: &mut Vault<BASE>, cfg: &config::Config, ts_ms: u64) {
+    let cetus = balance::value(&v.cetus_balance);
+    v.cetus_deployed_usdc = cetus;
+    v.cetus_last_rebalance_ts_ms = ts_ms;
+    v.cetus_pool_id = if (cetus > 0 && cetus_amm::is_available(cfg)) { config::cetus_pool_id(cfg) } else { @0x0 };
+
+    let y = balance::value(&v.yield_balance);
+    v.yield_deployed_usdc = y;
+    v.yield_last_rebalance_ts_ms = ts_ms;
+    v.yield_receipt_id = if (y > 0 && yield_source::is_available(cfg)) { config::lending_market_id(cfg) } else { @0x0 };
+
+    let hedge = balance::value(&v.hedge_margin_balance);
+    v.hedge_margin_usdc = hedge;
+    v.hedge_last_rebalance_ts_ms = ts_ms;
+    if (hedge > 0 && perp_hedge::is_available(cfg) && cetus > 0) {
+        v.hedge_position_id = config::perps_market_id(cfg);
+        v.hedge_notional_usdc = cetus;
+    } else {
+        v.hedge_position_id = @0x0;
+        v.hedge_notional_usdc = 0;
+    }
 }
 
 fun assert_vault_synced<BASE>(v: &Vault<BASE>) {
     let treasury = balance::value(&v.treasury);
-    let deployed = balance::value(&v.deployed);
+    let cetus = balance::value(&v.cetus_balance);
+    let y = balance::value(&v.yield_balance);
+    let hedge = balance::value(&v.hedge_margin_balance);
+    let deployed = math::safe_add(math::safe_add(cetus, y), hedge);
+    let total = math::safe_add(treasury, deployed);
+
     assert!(vault::treasury_usdc(&v.state) == treasury, errors::e_overflow());
-    assert!(v.cetus_deployed_usdc == deployed, errors::e_overflow());
-    assert!(vault::total_assets(&v.state) == math::safe_add(treasury, deployed), errors::e_overflow());
+    assert!(v.cetus_deployed_usdc == cetus, errors::e_overflow());
+    assert!(v.yield_deployed_usdc == y, errors::e_overflow());
+    assert!(v.hedge_margin_usdc == hedge, errors::e_overflow());
+    assert!(vault::total_assets(&v.state) == total, errors::e_overflow());
 }
 
-fun sync_cetus_position_state<BASE>(
-    v: &mut Vault<BASE>,
-    cfg: &config::Config,
-    ts_ms: u64,
+fun move_treasury_to_balance<BASE>(
+    treasury: &mut balance::Balance<BASE>,
+    strategy: &mut balance::Balance<BASE>,
+    amount: u64,
 ) {
-    let deployed = balance::value(&v.deployed);
-    v.cetus_deployed_usdc = deployed;
-    v.cetus_last_rebalance_ts_ms = ts_ms;
-    if (deployed > 0) {
-        v.cetus_pool_id = config::cetus_pool_id(cfg);
-    } else {
-        v.cetus_pool_id = @0x0;
+    if (amount > 0) {
+        let moved = balance::split(treasury, amount);
+        balance::join(strategy, moved);
     }
 }
 
-fun sync_deployed_amount_only<BASE>(v: &mut Vault<BASE>, ts_ms: u64) {
-    let deployed = balance::value(&v.deployed);
-    v.cetus_deployed_usdc = deployed;
-    v.cetus_last_rebalance_ts_ms = ts_ms;
-    if (deployed == 0) {
-        v.cetus_pool_id = @0x0;
+fun move_balance_to_treasury<BASE>(
+    strategy: &mut balance::Balance<BASE>,
+    treasury: &mut balance::Balance<BASE>,
+    amount: u64,
+) {
+    if (amount > 0) {
+        let moved = balance::split(strategy, amount);
+        balance::join(treasury, moved);
     }
 }
 
-fun target_cetus_deployed_usdc<BASE>(
+fun unwind_to_cover_liquidity<BASE>(v: &mut Vault<BASE>, needed_treasury: u64) {
+    let treasury = balance::value(&v.treasury);
+    if (treasury >= needed_treasury) return;
+
+    let mut deficit = needed_treasury - treasury;
+
+    let hedge = balance::value(&v.hedge_margin_balance);
+    let unwind_hedge = if (hedge < deficit) { hedge } else { deficit };
+    move_balance_to_treasury(&mut v.hedge_margin_balance, &mut v.treasury, unwind_hedge);
+    deficit = deficit - unwind_hedge;
+
+    let y = balance::value(&v.yield_balance);
+    let unwind_y = if (y < deficit) { y } else { deficit };
+    move_balance_to_treasury(&mut v.yield_balance, &mut v.treasury, unwind_y);
+    deficit = deficit - unwind_y;
+
+    let cetus = balance::value(&v.cetus_balance);
+    let unwind_cetus = if (cetus < deficit) { cetus } else { deficit };
+    move_balance_to_treasury(&mut v.cetus_balance, &mut v.treasury, unwind_cetus);
+
+    vault::set_treasury_usdc_for_testing(&mut v.state, balance::value(&v.treasury));
+}
+
+fun target_strategy_mix<BASE>(
     v: &Vault<BASE>,
     q: &queue::WithdrawalQueue,
     cfg: &config::Config,
-): u64 {
-    if (!cetus_amm::is_available(cfg) || vault::is_only_unwind(&vault::risk_mode(&v.state))) {
-        0
-    } else {
-        let regime = oracle::current_regime(&v.oracle);
-        let (_, lp_bps, _) = vault::get_allocation(&regime);
-        let total_assets = vault::total_assets(&v.state);
-        let target_lp = math::mul_div(total_assets, lp_bps, 10000);
-        let required_liquidity = math::safe_add(
-            queue::total_ready_usdc(queue::state(q)),
-            queue::total_pending_usdc(queue::state(q)),
-        );
-        let max_deployable = if (total_assets > required_liquidity) {
-            total_assets - required_liquidity
-        } else {
-            0
-        };
-        if (target_lp < max_deployable) { target_lp } else { max_deployable }
-    }
+): (u64, u64, u64) {
+    let total_assets = vault::total_assets(&v.state);
+    let queued_need = math::safe_add(
+        queue::total_ready_usdc(queue::state(q)),
+        queue::total_pending_usdc(queue::state(q)),
+    );
+
+    if (vault::is_only_unwind(&vault::risk_mode(&v.state))) {
+        let target_yield = if (yield_source::is_available(cfg)) { balance::value(&v.yield_balance) } else { 0 };
+        return (0, target_yield, 0)
+    };
+
+    let regime = oracle::current_regime(&v.oracle);
+    let (yield_bps, lp_bps, buffer_bps) = vault::get_allocation(&regime);
+    let buffer_target = math::mul_div(total_assets, buffer_bps, 10000);
+    let lp_nominal = if (cetus_amm::is_available(cfg)) { math::mul_div(total_assets, lp_bps, 10000) } else { 0 };
+    let hedge_margin_target = if (perp_hedge::is_available(cfg) && lp_nominal > 0) { perp_hedge::required_margin(lp_nominal) } else { 0 };
+    let required_liquidity = math::safe_add(
+        if (buffer_target > queued_need) { buffer_target } else { queued_need },
+        hedge_margin_target,
+    );
+    let max_deployable = if (total_assets > required_liquidity) { total_assets - required_liquidity } else { 0 };
+    let target_lp = if (lp_nominal < max_deployable) { lp_nominal } else { max_deployable };
+
+    let yield_nominal = if (yield_source::is_available(cfg)) { math::mul_div(total_assets, yield_bps, 10000) } else { 0 };
+    let remaining_after_lp = if (max_deployable > target_lp) { max_deployable - target_lp } else { 0 };
+    let target_yield = if (yield_nominal < remaining_after_lp) { yield_nominal } else { remaining_after_lp };
+
+    (target_lp, target_yield, hedge_margin_target)
 }
 
-fun rebalance_cetus_accounting<BASE>(
+fun rebalance_strategy_accounting<BASE>(
     v: &mut Vault<BASE>,
     q: &queue::WithdrawalQueue,
     cfg: &config::Config,
     ts_ms: u64,
 ) {
-    if (!cetus_amm::is_available(cfg)) {
-        sync_deployed_amount_only(v, ts_ms);
+    if (!cetus_amm::is_available(cfg) && !yield_source::is_available(cfg) && !perp_hedge::is_available(cfg)) {
+        v.last_rebalance_used_flash = false;
+        sync_strategy_metadata(v, cfg, ts_ms);
         return
     };
 
-    let current_deployed = balance::value(&v.deployed);
-    let target_deployed = target_cetus_deployed_usdc(v, q, cfg);
-    let treasury = vault::treasury_usdc(&v.state);
+    let (target_lp, target_yield, target_hedge) = target_strategy_mix(v, q, cfg);
 
-    if (current_deployed < target_deployed) {
-        let delta = target_deployed - current_deployed;
-        let moved = balance::split(&mut v.treasury, delta);
-        balance::join(&mut v.deployed, moved);
-        vault::set_treasury_usdc_for_testing(&mut v.state, math::safe_sub(treasury, delta));
-    } else if (current_deployed > target_deployed) {
-        let delta = current_deployed - target_deployed;
-        let moved = balance::split(&mut v.deployed, delta);
-        balance::join(&mut v.treasury, moved);
-        vault::set_treasury_usdc_for_testing(&mut v.state, math::safe_add(treasury, delta));
+    let current_lp = balance::value(&v.cetus_balance);
+    let current_yield = balance::value(&v.yield_balance);
+    let current_hedge = balance::value(&v.hedge_margin_balance);
+
+    let lp_delta = if (current_lp > target_lp) { current_lp - target_lp } else { target_lp - current_lp };
+    let yield_delta = if (current_yield > target_yield) { current_yield - target_yield } else { target_yield - current_yield };
+    let hedge_delta = if (current_hedge > target_hedge) { current_hedge - target_hedge } else { target_hedge - current_hedge };
+    let total_delta = math::safe_add(math::safe_add(lp_delta, yield_delta), hedge_delta);
+    v.last_rebalance_used_flash = rebalancer::rebalance_flash(cfg, total_delta);
+    let _ = if (!v.last_rebalance_used_flash) { rebalancer::rebalance_ptb(cfg, total_delta) } else { false };
+
+    if (current_hedge > target_hedge) {
+        move_balance_to_treasury(&mut v.hedge_margin_balance, &mut v.treasury, current_hedge - target_hedge)
+    };
+    if (current_yield > target_yield) {
+        move_balance_to_treasury(&mut v.yield_balance, &mut v.treasury, current_yield - target_yield)
+    };
+    if (current_lp > target_lp) {
+        move_balance_to_treasury(&mut v.cetus_balance, &mut v.treasury, current_lp - target_lp)
     };
 
-    sync_cetus_position_state(v, cfg, ts_ms);
+    let next_lp = balance::value(&v.cetus_balance);
+    let next_yield = balance::value(&v.yield_balance);
+    let next_hedge = balance::value(&v.hedge_margin_balance);
+
+    if (next_lp < target_lp) {
+        move_treasury_to_balance(&mut v.treasury, &mut v.cetus_balance, target_lp - next_lp)
+    };
+    if (next_yield < target_yield) {
+        move_treasury_to_balance(&mut v.treasury, &mut v.yield_balance, target_yield - next_yield)
+    };
+    if (next_hedge < target_hedge) {
+        move_treasury_to_balance(&mut v.treasury, &mut v.hedge_margin_balance, target_hedge - next_hedge)
+    };
+
+    vault::set_treasury_usdc_for_testing(&mut v.state, balance::value(&v.treasury));
+    sync_strategy_metadata(v, cfg, ts_ms);
 }
 
 public fun has_cetus_position<BASE>(v: &Vault<BASE>): bool { v.cetus_deployed_usdc > 0 }
 public fun cetus_pool_id<BASE>(v: &Vault<BASE>): address { v.cetus_pool_id }
 public fun cetus_deployed_usdc<BASE>(v: &Vault<BASE>): u64 { v.cetus_deployed_usdc }
 public fun cetus_last_rebalance_ts_ms<BASE>(v: &Vault<BASE>): u64 { v.cetus_last_rebalance_ts_ms }
-public fun deployed_balance<BASE>(v: &Vault<BASE>): u64 { balance::value(&v.deployed) }
+public fun yield_receipt_id<BASE>(v: &Vault<BASE>): address { v.yield_receipt_id }
+public fun yield_deployed_usdc<BASE>(v: &Vault<BASE>): u64 { v.yield_deployed_usdc }
+public fun hedge_position_id<BASE>(v: &Vault<BASE>): address { v.hedge_position_id }
+public fun hedge_notional_usdc<BASE>(v: &Vault<BASE>): u64 { v.hedge_notional_usdc }
+public fun hedge_margin_usdc<BASE>(v: &Vault<BASE>): u64 { v.hedge_margin_usdc }
+public fun last_rebalance_used_flash<BASE>(v: &Vault<BASE>): bool { v.last_rebalance_used_flash }
+public fun deployed_balance<BASE>(v: &Vault<BASE>): u64 { total_deployed_internal(v) }
 
-/// Initialize core shared objects:
-/// - shared: `entrypoints::Vault<BASE>` + `queue::WithdrawalQueue` + `config::Config`
-/// - owned by sender: `config::AdminCap`
 public fun bootstrap<BASE>(
     sdye_treasury: coin::TreasuryCap<sdye::SDYE>,
     min_cycle_interval_ms: u64,
@@ -136,10 +240,20 @@ public fun bootstrap<BASE>(
         state: vault::new_state(),
         oracle: oracle::new(),
         treasury: balance::zero(),
-        deployed: balance::zero(),
+        cetus_balance: balance::zero(),
+        yield_balance: balance::zero(),
+        hedge_margin_balance: balance::zero(),
         cetus_pool_id: @0x0,
         cetus_deployed_usdc: 0,
         cetus_last_rebalance_ts_ms: 0,
+        yield_receipt_id: @0x0,
+        yield_deployed_usdc: 0,
+        yield_last_rebalance_ts_ms: 0,
+        hedge_position_id: @0x0,
+        hedge_notional_usdc: 0,
+        hedge_margin_usdc: 0,
+        hedge_last_rebalance_ts_ms: 0,
+        last_rebalance_used_flash: false,
         sdye_treasury,
     };
     let q = queue::new_queue(ctx);
@@ -150,7 +264,6 @@ public fun bootstrap<BASE>(
     transfer::public_transfer(cap, tx_context::sender(ctx));
 }
 
-/// Deposit base asset -> mint SDYE shares.
 public fun deposit<BASE>(
     v: &mut Vault<BASE>,
     base_in: coin::Coin<BASE>,
@@ -165,9 +278,6 @@ public fun deposit<BASE>(
     sdye::mint_shares(&mut v.sdye_treasury, shares_out, ctx)
 }
 
-/// Request a withdrawal by providing SDYE shares.
-///
-/// Returns (plan, base_out_opt). If plan is `Instant`, `base_out_opt` is `some(Coin<BASE>)`.
 public fun request_withdraw<BASE>(
     v: &mut Vault<BASE>,
     q: &mut queue::WithdrawalQueue,
@@ -204,7 +314,6 @@ public fun request_withdraw<BASE>(
     }
 }
 
-/// Claim a processed withdrawal request (Ready -> Claimed).
 public fun claim<BASE>(
     v: &mut Vault<BASE>,
     q: &mut queue::WithdrawalQueue,
@@ -225,7 +334,6 @@ public fun claim<BASE>(
     base_out
 }
 
-/// Permissionless rebalance cycle. Returns (moved_ready_count, bounty_opt).
 public fun cycle<BASE>(
     v: &mut Vault<BASE>,
     q: &mut queue::WithdrawalQueue,
@@ -236,23 +344,11 @@ public fun cycle<BASE>(
 ): (u64, option::Option<coin::Coin<BASE>>) {
     assert_vault_synced(v);
 
-    // Minimal unwind simulation: move from deployed -> treasury to cover (ready + pending) requests.
     let needed = math::safe_add(
         queue::total_ready_usdc(queue::state(q)),
         queue::total_pending_usdc(queue::state(q)),
     );
-    if (vault::treasury_usdc(&v.state) < needed) {
-        let treasury = vault::treasury_usdc(&v.state);
-        let deficit = needed - treasury;
-        let deployed_value = balance::value(&v.deployed);
-        let unwind = if (deployed_value < deficit) { deployed_value } else { deficit };
-        if (unwind > 0) {
-            let b = balance::split(&mut v.deployed, unwind);
-            balance::join(&mut v.treasury, b);
-            let new_treasury = math::safe_add(treasury, unwind);
-            vault::set_treasury_usdc_for_testing(&mut v.state, new_treasury);
-        }
-    };
+    unwind_to_cover_liquidity(v, needed);
 
     let ts_ms = clock::timestamp_ms(clock);
     let (moved, bounty) = vault::cycle(
@@ -272,7 +368,7 @@ public fun cycle<BASE>(
         option::none()
     };
 
-    rebalance_cetus_accounting(v, q, cfg, ts_ms);
+    rebalance_strategy_accounting(v, q, cfg, ts_ms);
     assert_vault_synced(v);
     (moved, bounty_opt)
 }
@@ -283,10 +379,8 @@ public fun deploy_for_testing<BASE>(v: &mut Vault<BASE>, amount: u64) {
     assert_vault_synced(v);
     assert!(vault::treasury_usdc(&v.state) >= amount, errors::e_treasury_insufficient());
 
-    let b = balance::split(&mut v.treasury, amount);
-    balance::join(&mut v.deployed, b);
-    let treasury = vault::treasury_usdc(&v.state);
-    vault::set_treasury_usdc_for_testing(&mut v.state, math::safe_sub(treasury, amount));
-    v.cetus_deployed_usdc = balance::value(&v.deployed);
+    move_treasury_to_balance(&mut v.treasury, &mut v.cetus_balance, amount);
+    vault::set_treasury_usdc_for_testing(&mut v.state, balance::value(&v.treasury));
+    v.cetus_deployed_usdc = balance::value(&v.cetus_balance);
     assert_vault_synced(v);
 }
