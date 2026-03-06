@@ -20,7 +20,18 @@ poc/**/dist/
 # Local memory docs (do not push)
 /MEMORY.md
 
+# Private technical docs (do not push)
+/docs/
+/ARCHITECTURE.md
+/DEPLOYMENT_INPUTS.md
+/ECONOMICS.md
+/THREAT_MODEL.md
+/技术文档.md
+
 # Sui Move build artifacts
 /sui/build/
 /sui/.trace
 /sui/.coverage_map.mvcov
+
+# Local MOVE_HOME cache
+/m/

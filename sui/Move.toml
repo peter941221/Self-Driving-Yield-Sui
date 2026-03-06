@@ -4,8 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
+CetusClmm = { git = "https://github.com/CetusProtocol/cetus-contracts.git", subdir = "packages/cetus_clmm", rev = "0a90d59cef9fa86485d81b11cb07a651d76ed360" }
 
 [addresses]
 self_driving_yield = "0x0"
-

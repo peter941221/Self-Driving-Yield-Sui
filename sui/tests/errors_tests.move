@@ -17,4 +17,5 @@ fun error_code_constants_match_functions() {
     assert!(errors::e_not_owner() == 11, 0);
     assert!(errors::e_treasury_insufficient() == 12, 0);
     assert!(errors::e_cycle_too_early() == 13, 0);
+    assert!(errors::e_adapter_not_implemented() == 14, 0);
 }
