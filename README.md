@@ -229,7 +229,7 @@ What is included now:
 - explicit live LP helper path now includes `open_position_into_vault / rebalance_live / close_stored_position_from_vault`
 - vault now persists live Cetus metadata for `open -> hold snapshot -> close`
 - a real `Scallop` supply probe script now exists: `python scripts/scallop_supply_probe.py --help`
-- current honest Scallop status: official SDK wiring works, but latest live run is blocked because the SDK is mainnet-only and the active wallet has `0` mainnet `SUI`
+- latest Scallop mainnet proof succeeded: `depositQuick -> query -> withdrawQuick` now has a real archived report under `out/reports/scallop_supply_probe_20260307T120021Z.json`
 
 What is still intentionally out of scope for this repo snapshot:
 

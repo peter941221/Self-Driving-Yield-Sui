@@ -79,9 +79,19 @@ await sleep(args.waitMs);
 
 const afterDeposit = await snapshot(args.poolCoinName);
 
+const lendingAfterDeposit = afterDeposit?.lending ?? {};
+const withdrawAmount = Math.floor(
+  lendingAfterDeposit.unstakedMarketAmount ??
+  lendingAfterDeposit.availableStakeAmount ??
+  args.amount
+);
+if (!withdrawAmount || withdrawAmount <= 0) {
+  throw new Error(`No withdrawable Scallop market/sCoin amount found after deposit for ${args.poolCoinName}`);
+}
+
 const withdrawTx = builder.createTxBlock();
 withdrawTx.setSender(sender);
-const withdrawnCoin = await withdrawTx.withdrawQuick(args.amount, args.poolCoinName);
+const withdrawnCoin = await withdrawTx.withdrawQuick(withdrawAmount, args.poolCoinName);
 withdrawTx.transferObjects([withdrawnCoin], sender);
 const withdrawResult = await builder.signAndSendTxBlock(withdrawTx);
 await sleep(args.waitMs);
@@ -98,6 +108,7 @@ process.stdout.write(JSON.stringify({
   },
   after_deposit: afterDeposit,
   withdraw: {
+    requested_amount: withdrawAmount,
     digest: withdrawResult.digest,
     effects: withdrawResult.effects ?? null,
   },
