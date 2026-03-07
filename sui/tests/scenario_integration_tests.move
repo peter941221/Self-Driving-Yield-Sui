@@ -7,6 +7,7 @@ use sui::test_scenario;
 use self_driving_yield::config;
 use self_driving_yield::sdye;
 use self_driving_yield::entrypoints;
+use self_driving_yield::oracle;
 use self_driving_yield::usdc;
 use self_driving_yield::queue;
 use self_driving_yield::vault;
@@ -114,6 +115,117 @@ fun deposit_cycle_withdraw_claim_full_path() {
         let base_out = entrypoints::claim(&mut v, &mut q, 0, &clock, test_scenario::ctx(&mut scenario));
         assert!(coin::value(&base_out) == 5_000, 0);
         transfer::public_transfer(base_out, admin);
+
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+
+    let _effects = test_scenario::end(scenario);
+}
+
+#[test]
+fun storm_queue_pressure_unwinds_and_restores_after_two_safe_cycles() {
+    let admin = @0x1;
+    let mut scenario = test_scenario::begin(admin);
+    test_scenario::create_system_objects(&mut scenario);
+
+    {
+        let sdye_treasury = coin::create_treasury_cap_for_testing<sdye::SDYE>(test_scenario::ctx(&mut scenario));
+        entrypoints::bootstrap<usdc::USDC>(sdye_treasury, 0, 0, test_scenario::ctx(&mut scenario));
+    };
+    test_scenario::next_tx(&mut scenario, admin);
+
+    {
+        let mut clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        clock::set_for_testing(&mut clock, 1000);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+
+        let usdc_in = coin::mint_for_testing<usdc::USDC>(20_000, test_scenario::ctx(&mut scenario));
+        let mut shares = entrypoints::deposit(&mut v, usdc_in, &clock, test_scenario::ctx(&mut scenario));
+        entrypoints::deploy_for_testing(&mut v, 18_000);
+
+        let withdraw_a = coin::split(&mut shares, 7_000, test_scenario::ctx(&mut scenario));
+        let (plan_a, base_opt_a) = entrypoints::request_withdraw(&mut v, &mut q, withdraw_a, &clock, test_scenario::ctx(&mut scenario));
+        assert!(vault::plan_is_queued(&plan_a), 0);
+        assert!(vault::queued_request_id(&plan_a) == 0, 0);
+        option::destroy_none(base_opt_a);
+
+        let withdraw_b = coin::split(&mut shares, 8_000, test_scenario::ctx(&mut scenario));
+        let (plan_b, base_opt_b) = entrypoints::request_withdraw(&mut v, &mut q, withdraw_b, &clock, test_scenario::ctx(&mut scenario));
+        assert!(vault::plan_is_queued(&plan_b), 0);
+        assert!(vault::queued_request_id(&plan_b) == 1, 0);
+        option::destroy_none(base_opt_b);
+
+        assert!(queue::total_pending_usdc(queue::state(&q)) == 15_000, 0);
+        assert!(active_locked_shares(&q, 2) == 15_000, 0);
+        assert_balance_invariant(&v);
+
+        transfer::public_transfer(shares, admin);
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+    };
+    test_scenario::next_tx(&mut scenario, admin);
+
+    {
+        let mut clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+
+        let p = oracle::price_precision();
+        let hi = p + 30_000_000;
+        let lo = p - 30_000_000;
+        let mut ts = 2000;
+        let mut i = 0;
+        while (i < 12) {
+            clock::set_for_testing(&mut clock, ts);
+            let spot = if (i % 2u64 == 0) { hi } else { lo };
+            let (_, bounty_opt) = entrypoints::cycle(&mut v, &mut q, &cfg, spot, &clock, test_scenario::ctx(&mut scenario));
+            option::destroy_none(bounty_opt);
+            ts = ts + 1000;
+            i = i + 1;
+        };
+
+        assert!(entrypoints::is_only_unwind_mode(&v), 0);
+        assert!(entrypoints::safe_cycles_since_storm(&v) == 0, 0);
+        assert!(queue::total_ready_usdc(queue::state(&q)) == 15_000, 0);
+        assert!(queue::total_pending_usdc(queue::state(&q)) == 0, 0);
+        assert!(entrypoints::treasury_usdc(&v) == 15_000, 0);
+        assert!(entrypoints::deployed_balance(&v) == 5_000, 0);
+        assert_balance_invariant(&v);
+
+        clock::set_for_testing(&mut clock, ts);
+        let (_, bounty_opt_1) = entrypoints::cycle(&mut v, &mut q, &cfg, p, &clock, test_scenario::ctx(&mut scenario));
+        option::destroy_none(bounty_opt_1);
+        assert!(entrypoints::is_only_unwind_mode(&v), 0);
+        assert!(entrypoints::safe_cycles_since_storm(&v) == 1, 0);
+
+        ts = ts + 1000;
+        clock::set_for_testing(&mut clock, ts);
+        let (_, bounty_opt_2) = entrypoints::cycle(&mut v, &mut q, &cfg, p, &clock, test_scenario::ctx(&mut scenario));
+        option::destroy_none(bounty_opt_2);
+        assert!(!entrypoints::is_only_unwind_mode(&v), 0);
+        assert!(entrypoints::safe_cycles_since_storm(&v) == 2, 0);
+
+        let out_a = entrypoints::claim(&mut v, &mut q, 0, &clock, test_scenario::ctx(&mut scenario));
+        let out_b = entrypoints::claim(&mut v, &mut q, 1, &clock, test_scenario::ctx(&mut scenario));
+        assert!(coin::value(&out_a) == 7_000, 0);
+        assert!(coin::value(&out_b) == 8_000, 0);
+        transfer::public_transfer(out_a, admin);
+        transfer::public_transfer(out_b, admin);
+
+        assert!(queue::total_ready_usdc(queue::state(&q)) == 0, 0);
+        assert!(active_locked_shares(&q, 2) == 0, 0);
+        assert!(entrypoints::total_shares(&v) == 5_000, 0);
+        assert!(entrypoints::treasury_usdc(&v) == 0, 0);
+        assert!(entrypoints::deployed_balance(&v) == 5_000, 0);
+        assert_balance_invariant(&v);
 
         test_scenario::return_shared(clock);
         test_scenario::return_shared(v);

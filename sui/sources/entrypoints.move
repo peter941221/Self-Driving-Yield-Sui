@@ -12,9 +12,11 @@ use self_driving_yield::sdye;
 use self_driving_yield::types;
 use self_driving_yield::vault;
 use self_driving_yield::yield_source;
+use cetus_clmm::position::Position;
 use sui::balance;
 use sui::clock;
 use sui::coin;
+use sui::dynamic_object_field;
 use sui::event;
 
 public struct Vault<phantom BASE> has key, store {
@@ -35,6 +37,13 @@ public struct Vault<phantom BASE> has key, store {
     hedge_notional_usdc: u64,
     hedge_margin_usdc: u64,
     hedge_last_rebalance_ts_ms: u64,
+    live_cetus_enabled: bool,
+    live_cetus_position_present: bool,
+    live_cetus_last_position_id: address,
+    live_cetus_last_principal_a: u64,
+    live_cetus_last_principal_b: u64,
+    live_cetus_last_snapshot_ts_ms: u64,
+    live_cetus_last_action_code: u64,
     last_rebalance_used_flash: bool,
     sdye_treasury: coin::TreasuryCap<sdye::SDYE>,
 }
@@ -74,6 +83,15 @@ public struct CycleEvent has copy, drop, store {
     used_flash: bool,
 }
 
+public struct CetusPositionKey has copy, drop, store {}
+
+fun cetus_position_key(): CetusPositionKey { CetusPositionKey {} }
+
+const LIVE_CETUS_ACTION_NONE: u64 = 0;
+const LIVE_CETUS_ACTION_OPEN: u64 = 1;
+const LIVE_CETUS_ACTION_HOLD: u64 = 2;
+const LIVE_CETUS_ACTION_CLOSE: u64 = 3;
+
 fun total_deployed_internal<BASE>(v: &Vault<BASE>): u64 {
     let cetus = balance::value(&v.cetus_balance);
     let y = balance::value(&v.yield_balance);
@@ -95,7 +113,8 @@ fun sync_strategy_metadata<BASE>(v: &mut Vault<BASE>, cfg: &config::Config, ts_m
     let cetus = balance::value(&v.cetus_balance);
     v.cetus_deployed_usdc = cetus;
     v.cetus_last_rebalance_ts_ms = ts_ms;
-    v.cetus_pool_id = if (cetus > 0 && cetus_amm::is_available(cfg)) { config::cetus_pool_id(cfg) } else { @0x0 };
+    v.cetus_pool_id = if ((cetus > 0 || has_stored_cetus_position(v)) && cetus_amm::is_available(cfg)) { config::cetus_pool_id(cfg) } else { @0x0 };
+    sync_cetus_live_presence(v, cfg);
 
     let y = balance::value(&v.yield_balance);
     v.yield_deployed_usdc = y;
@@ -112,6 +131,74 @@ fun sync_strategy_metadata<BASE>(v: &mut Vault<BASE>, cfg: &config::Config, ts_m
         v.hedge_position_id = @0x0;
         v.hedge_notional_usdc = 0;
     }
+}
+
+fun sync_cetus_live_presence<BASE>(v: &mut Vault<BASE>, cfg: &config::Config) {
+    v.live_cetus_enabled = cetus_amm::is_available(cfg);
+    v.live_cetus_position_present = has_stored_cetus_position(v);
+    if (v.live_cetus_position_present) {
+        v.live_cetus_last_position_id = stored_cetus_position_id(v);
+    }
+}
+
+public(package) fun record_cetus_live_open<BASE>(
+    v: &mut Vault<BASE>,
+    cfg: &config::Config,
+    position_id: address,
+    principal_a: u64,
+    principal_b: u64,
+    ts_ms: u64,
+) {
+    sync_cetus_live_presence(v, cfg);
+    v.live_cetus_enabled = true;
+    v.live_cetus_position_present = true;
+    v.live_cetus_last_position_id = position_id;
+    v.live_cetus_last_principal_a = principal_a;
+    v.live_cetus_last_principal_b = principal_b;
+    v.live_cetus_last_snapshot_ts_ms = ts_ms;
+    v.live_cetus_last_action_code = LIVE_CETUS_ACTION_OPEN;
+}
+
+public(package) fun record_cetus_live_hold<BASE>(v: &mut Vault<BASE>, cfg: &config::Config, ts_ms: u64) {
+    sync_cetus_live_presence(v, cfg);
+    if (v.live_cetus_position_present) {
+        v.live_cetus_last_snapshot_ts_ms = ts_ms;
+        v.live_cetus_last_action_code = LIVE_CETUS_ACTION_HOLD;
+    }
+}
+
+public(package) fun record_cetus_live_snapshot<BASE>(
+    v: &mut Vault<BASE>,
+    cfg: &config::Config,
+    position_id: address,
+    amount_a: u64,
+    amount_b: u64,
+    ts_ms: u64,
+) {
+    sync_cetus_live_presence(v, cfg);
+    v.live_cetus_enabled = cetus_amm::is_available(cfg);
+    v.live_cetus_position_present = true;
+    v.live_cetus_last_position_id = position_id;
+    v.live_cetus_last_principal_a = amount_a;
+    v.live_cetus_last_principal_b = amount_b;
+    v.live_cetus_last_snapshot_ts_ms = ts_ms;
+    v.live_cetus_last_action_code = LIVE_CETUS_ACTION_HOLD;
+}
+
+public(package) fun record_cetus_live_close<BASE>(
+    v: &mut Vault<BASE>,
+    cfg: &config::Config,
+    position_id: address,
+    ts_ms: u64,
+) {
+    sync_cetus_live_presence(v, cfg);
+    v.live_cetus_enabled = cetus_amm::is_available(cfg);
+    v.live_cetus_position_present = false;
+    v.live_cetus_last_position_id = position_id;
+    v.live_cetus_last_principal_a = 0;
+    v.live_cetus_last_principal_b = 0;
+    v.live_cetus_last_snapshot_ts_ms = ts_ms;
+    v.live_cetus_last_action_code = LIVE_CETUS_ACTION_CLOSE;
 }
 
 fun assert_vault_synced<BASE>(v: &Vault<BASE>) {
@@ -218,6 +305,13 @@ fun rebalance_strategy_accounting<BASE>(
     cfg: &config::Config,
     ts_ms: u64,
 ) {
+    if (has_stored_cetus_position(v)) {
+        v.last_rebalance_used_flash = false;
+        record_cetus_live_hold(v, cfg, ts_ms);
+        sync_strategy_metadata(v, cfg, ts_ms);
+        return
+    };
+
     if (!cetus_amm::is_available(cfg) && !yield_source::is_available(cfg) && !perp_hedge::is_available(cfg)) {
         v.last_rebalance_used_flash = false;
         sync_strategy_metadata(v, cfg, ts_ms);
@@ -266,6 +360,32 @@ fun rebalance_strategy_accounting<BASE>(
 }
 
 public fun has_cetus_position<BASE>(v: &Vault<BASE>): bool { v.cetus_deployed_usdc > 0 }
+public fun has_stored_cetus_position<BASE>(v: &Vault<BASE>): bool {
+    dynamic_object_field::exists_(&v.id, cetus_position_key())
+}
+
+public fun stored_cetus_position_id<BASE>(v: &Vault<BASE>): address {
+    assert!(has_stored_cetus_position(v), errors::e_missing_object());
+    let position_nft = dynamic_object_field::borrow<CetusPositionKey, Position>(&v.id, cetus_position_key());
+    let position_id = object::id(position_nft);
+    object::id_to_address(&position_id)
+}
+
+public(package) fun borrow_stored_cetus_position<BASE>(v: &Vault<BASE>): &Position {
+    assert!(has_stored_cetus_position(v), errors::e_missing_object());
+    dynamic_object_field::borrow<CetusPositionKey, Position>(&v.id, cetus_position_key())
+}
+
+public fun store_cetus_position<BASE>(v: &mut Vault<BASE>, position_nft: Position) {
+    assert!(!has_stored_cetus_position(v), errors::e_invalid_plan());
+    dynamic_object_field::add(&mut v.id, cetus_position_key(), position_nft);
+}
+
+public fun take_cetus_position<BASE>(v: &mut Vault<BASE>): Position {
+    assert!(has_stored_cetus_position(v), errors::e_missing_object());
+    dynamic_object_field::remove<CetusPositionKey, Position>(&mut v.id, cetus_position_key())
+}
+
 public fun total_assets<BASE>(v: &Vault<BASE>): u64 { vault::total_assets(&v.state) }
 public fun total_shares<BASE>(v: &Vault<BASE>): u64 { vault::total_shares(&v.state) }
 public fun treasury_usdc<BASE>(v: &Vault<BASE>): u64 { vault::treasury_usdc(&v.state) }
@@ -279,6 +399,13 @@ public fun yield_deployed_usdc<BASE>(v: &Vault<BASE>): u64 { v.yield_deployed_us
 public fun hedge_position_id<BASE>(v: &Vault<BASE>): address { v.hedge_position_id }
 public fun hedge_notional_usdc<BASE>(v: &Vault<BASE>): u64 { v.hedge_notional_usdc }
 public fun hedge_margin_usdc<BASE>(v: &Vault<BASE>): u64 { v.hedge_margin_usdc }
+public fun live_cetus_enabled<BASE>(v: &Vault<BASE>): bool { v.live_cetus_enabled }
+public fun live_cetus_position_present<BASE>(v: &Vault<BASE>): bool { v.live_cetus_position_present }
+public fun live_cetus_last_position_id<BASE>(v: &Vault<BASE>): address { v.live_cetus_last_position_id }
+public fun live_cetus_last_principal_a<BASE>(v: &Vault<BASE>): u64 { v.live_cetus_last_principal_a }
+public fun live_cetus_last_principal_b<BASE>(v: &Vault<BASE>): u64 { v.live_cetus_last_principal_b }
+public fun live_cetus_last_snapshot_ts_ms<BASE>(v: &Vault<BASE>): u64 { v.live_cetus_last_snapshot_ts_ms }
+public fun live_cetus_last_action_code<BASE>(v: &Vault<BASE>): u64 { v.live_cetus_last_action_code }
 public fun last_rebalance_used_flash<BASE>(v: &Vault<BASE>): bool { v.last_rebalance_used_flash }
 public fun deployed_balance<BASE>(v: &Vault<BASE>): u64 { total_deployed_internal(v) }
 
@@ -308,6 +435,13 @@ public fun bootstrap<BASE>(
         hedge_notional_usdc: 0,
         hedge_margin_usdc: 0,
         hedge_last_rebalance_ts_ms: 0,
+        live_cetus_enabled: false,
+        live_cetus_position_present: false,
+        live_cetus_last_position_id: @0x0,
+        live_cetus_last_principal_a: 0,
+        live_cetus_last_principal_b: 0,
+        live_cetus_last_snapshot_ts_ms: 0,
+        live_cetus_last_action_code: LIVE_CETUS_ACTION_NONE,
         last_rebalance_used_flash: false,
         sdye_treasury,
     };

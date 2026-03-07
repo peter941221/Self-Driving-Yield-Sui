@@ -224,14 +224,25 @@ What is included now:
 - event surface for monitoring and alerting
 - deploy / monitor / demo scripts for operator workflows
 - funded testnet smoke path completed with `deposit + 12 cycles`
-- local Move validation now sits at `84/84 PASS` and `95.60%` overall coverage
+- local Move validation now sits at `97/97 PASS` and `96.13%` overall coverage
 - local Cetus wrapper tests now cover `open / add / remove / swap / amount` flows
+- explicit live LP helper path now includes `open_position_into_vault / rebalance_live / close_stored_position_from_vault`
+- vault now persists live Cetus metadata for `open -> hold snapshot -> close`
+- a real `Scallop` supply probe script now exists: `python scripts/scallop_supply_probe.py --help`
+- current honest Scallop status: official SDK wiring works, but latest live run is blocked because the SDK is mainnet-only and the active wallet has `0` mainnet `SUI`
 
 What is still intentionally out of scope for this repo snapshot:
 
 - prover-based formal verification (`sui move prove` not available locally)
 - one-click mainnet publish from CI without operator wallet / gas
 - production-grade hosted dashboards / alert routing beyond the local scripts
+- fully automated `cycle()`-managed live LP add / remove / close state machine
+
+Quick external-reader docs:
+
+- `docs/INVESTOR_STATUS_BRIEF.md`
+- `docs/EVIDENCE_BOARD.md`
+- `docs/RUNBOOK.md`
 
 ---
 
@@ -293,6 +304,7 @@ Use the deploy script:
 
 ```bash
 python scripts/deploy_sui.py --help
+python scripts/cetus_live_probe.py --help
 ```
 
 Typical flow:
@@ -472,6 +484,72 @@ Recommended decision:
               then keep core immutable + adapters behind timelock
 ```
 
+### P5.1 Cetus-First Live Probe
+
+For the first real external-object slice, use the dedicated live probe:
+
+```bash
+python scripts/cetus_live_probe.py --help
+python scripts/cetus_live_suite.py --help
+python scripts/sui_staking_probe.py --help
+```
+
+What it does:
+
+- creates or refreshes a dedicated manifest such as `out/deployments/testnet_cetus_live.json`
+- pins a real non-zero `cetus_pool_id` into config during deploy
+- opens a real Cetus position with user-supplied coins against real shared objects
+- optionally closes the position immediately and archives a JSON report under `out/reports/`
+
+Latest real-object proof on `2026-03-07`:
+
+- real `TEST_QUOTE / SDYE` Cetus pool created on testnet: `0xe8bee419df59bf9b71666255e3956ad8e324b03f39a2c413f174cb157fd84cd8`
+- `cetus_live_probe.py` completed `open -> close` successfully against that pool
+- probe digests: open `DEcDuiCYaxZ1um1CTZ6eknB1iCZbcJixVpJfo5vXZHqZ`, close `6D61T4sevFafRGpBCnd5D3buruPzrGm2zoJWvCroQhs3`
+- one-click replay now exists: `python scripts/cetus_live_suite.py --help`
+- result: the repo now has current testnet evidence for a real external-object Cetus path, not only accounting-only lifecycle smoke
+
+Latest vault-ownership proof on `2026-03-07`:
+
+- fresh vault-live package: `0xf2ef4141ad2cbe0de13ee528f5475b65308297eb0713de586bb9b30a49c8012e`
+- `open_position_into_vault_entry` digest: `FMN7VDYxp3f5Sdr2Lr1jpGpJvP9yZz5zLhoJSTU7qSu6`
+- `close_stored_position_from_vault_entry` digest: `Cwda6DUMFZWFbDmgwk2X5TPr9kzkX4q4RjL9phGLDTuz`
+- what this proves: a shared `Vault` can now hold a real Cetus `Position` NFT across transactions and release it later
+
+Latest yield-source proof on `2026-03-07`:
+
+- native testnet staking probe script: `python scripts/sui_staking_probe.py --help`
+- latest successful staking digest: `8QgfS7YQRq1bX2Dq9esLcC8CWhvi2itiEQCeQdfmXfZu`
+- latest `StakedSui` object: `0x4c310ceda6b01eb9fae12438cd78e622771cc88db505cb75040c04f9f6732478`
+- why this matters: the repo now has a second real yield leg on testnet, even though `yield_source.move` itself is still accounting-only in core Move logic
+
+Perps testnet note:
+
+- `python scripts/aftermath_perps_probe.py --help` archives the current Aftermath perps blocker
+- latest run hit `registry::create_account` abort code `19`, and tested collaterals returned zero markets
+- treat perps testnet as blocked until Aftermath re-enables or documents a working testnet path
+
+Accounting branch vs live branch:
+
+```text
+[Accounting branch]
+   ├─ uses plain `cycle()`
+   ├─ rebalances internal buckets only
+   └─ proves vault / queue / oracle / accounting lifecycle
+
+[Live branch]
+   ├─ uses Cetus live helpers and real shared objects
+   ├─ explicit paths: `open_position_into_vault / rebalance_live / close_stored_position_from_vault`
+   ├─ vault tracks live Position metadata across tx
+   └─ current limit: `rebalance_live` records live hold snapshots, but does not yet auto add/remove/close liquidity
+```
+
+Why this matters:
+
+- it produces evidence beyond the accounting-only `cycle()` path
+- it keeps real Cetus proof separate from the older lifecycle-only `testnet_smoke` manifest
+- it also exposed an integration gotcha: this repo is pinned to Cetus testnet package `0x5372...`, so live object IDs must match that package rather than older SDK defaults
+
 Why this is the safest default:
 
 - `vault / queue / oracle / share accounting` carry the highest invariant risk.
@@ -497,6 +575,7 @@ sui/
 
 scripts/
 ├─ backtest.py
+├─ cetus_live_probe.py
 ├─ deploy_sui.py
 ├─ monitor_sui.py
 └─ demo_sui.py
@@ -522,9 +601,9 @@ If you want to keep shipping after P4, the next high-value items are:
 ```text
 [P5 Live Integration]
    |
-   +--> real Cetus shared objects
-   +--> real fee collection lifecycle
-   +--> testnet dry-run with live package IDs
+   +--> upgrade `rebalance_live` from hold-snapshot to true add/remove/close state machine
+   +--> add one real DeFi yield leg beyond native staking (Scallop first)
+   +--> keep investor evidence board + README in sync with the latest reports
    +--> operator dashboard / hosted alerting
 ```
 

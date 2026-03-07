@@ -18,4 +18,7 @@ fun error_code_constants_match_functions() {
     assert!(errors::e_treasury_insufficient() == 12, 0);
     assert!(errors::e_cycle_too_early() == 13, 0);
     assert!(errors::e_adapter_not_implemented() == 14, 0);
+    assert!(errors::e_config_frozen() == 15, 0);
+    assert!(errors::e_object_mismatch() == 16, 0);
+    assert!(errors::e_missing_object() == 17, 0);
 }
