@@ -427,6 +427,7 @@ Latest local validation after the coverage + wrapper sprint:
 - `sui move coverage summary` -> `95.60%` overall
 - key module snapshot -> `entrypoints 95.72%`, `queue 96.34%`, `oracle 95.44%`, `vault 93.89%`, `cetus_amm 88.63%`
 - live-integration risk still matters more than raw local coverage, especially around real shared objects and operator flows
+- latest live testnet validation on `2026-03-07`: `testnet_cycle_smoke.py --manifest out/deployments/testnet_smoke.json` returned `status=ok`, completed another `deposit + 12 cycles`, and `monitor_sui.py` reported `OK: no alert thresholds triggered`
 
 Coverage progress from this sprint:
 
@@ -526,4 +527,5 @@ If you want to keep shipping after P4, the next high-value items are:
    +--> testnet dry-run with live package IDs
    +--> operator dashboard / hosted alerting
 ```
+
 
