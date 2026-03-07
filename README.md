@@ -224,7 +224,7 @@ What is included now:
 - event surface for monitoring and alerting
 - deploy / monitor / demo scripts for operator workflows
 - funded testnet smoke path completed with `deposit + 12 cycles`
-- local Move validation now sits at `101/101 PASS` and `95.92%` overall coverage
+- local Move validation now sits at `106/106 PASS` and `95.57%` overall coverage
 - local Cetus wrapper tests now cover `open / add / remove / swap / amount` flows
 - explicit live LP helper path now includes `open_position_into_vault / rebalance_live / close_stored_position_from_vault`
 - `cetus_live` now also has a `cycle_live` path that can auto-close a stored live Position under stress / queue pressure when the operator passes the real pool objects
