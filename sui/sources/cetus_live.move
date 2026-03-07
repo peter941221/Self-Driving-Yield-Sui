@@ -294,6 +294,37 @@ public fun rebalance_live<BASE, CoinTypeA, CoinTypeB>(
     }
 }
 
+fun should_close_live_position<BASE>(v: &entrypoints::Vault<BASE>, q: &queue::WithdrawalQueue): bool {
+    if (!entrypoints::has_stored_cetus_position(v)) {
+        return false
+    };
+    if (entrypoints::is_only_unwind_mode(v)) {
+        return true
+    };
+    let queued_need = queue::total_ready_usdc(queue::state(q)) + queue::total_pending_usdc(queue::state(q));
+    queued_need > entrypoints::treasury_usdc(v)
+}
+
+public fun cycle_live<BASE, CoinTypeA, CoinTypeB>(
+    v: &mut entrypoints::Vault<BASE>,
+    q: &mut queue::WithdrawalQueue,
+    cfg: &config::Config,
+    clmm_cfg: &GlobalConfig,
+    clmm_pool: &mut Pool<CoinTypeA, CoinTypeB>,
+    spot_price: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): (u64, option::Option<coin::Coin<BASE>>, coin::Coin<CoinTypeA>, coin::Coin<CoinTypeB>, u64, u64, u64) {
+    let should_close_before = should_close_live_position(v, q);
+    let (moved, bounty_opt, amount_a, amount_b) = rebalance_live(v, q, cfg, clmm_pool, spot_price, clock, ctx);
+    if (should_close_before || should_close_live_position(v, q)) {
+        let (coin_a_out, coin_b_out) = close_stored_position_from_vault(v, cfg, clmm_cfg, clmm_pool, clock, ctx);
+        (moved, bounty_opt, coin_a_out, coin_b_out, 3, amount_a, amount_b)
+    } else {
+        (moved, bounty_opt, coin::zero<CoinTypeA>(ctx), coin::zero<CoinTypeB>(ctx), 2, amount_a, amount_b)
+    }
+}
+
 #[allow(lint(self_transfer))]
 public fun open_position_with_liquidity_entry<CoinTypeA, CoinTypeB>(
     cfg: &config::Config,
@@ -393,4 +424,34 @@ public fun close_stored_position_from_vault_entry<BASE, CoinTypeA, CoinTypeB>(
     let (coin_a_out, coin_b_out) = close_stored_position_from_vault(v, cfg, clmm_cfg, clmm_pool, clock, ctx);
     transfer::public_transfer(coin_a_out, tx_context::sender(ctx));
     transfer::public_transfer(coin_b_out, tx_context::sender(ctx));
+}
+
+#[allow(lint(self_transfer))]
+public fun cycle_live_entry<BASE, CoinTypeA, CoinTypeB>(
+    v: &mut entrypoints::Vault<BASE>,
+    q: &mut queue::WithdrawalQueue,
+    cfg: &config::Config,
+    clmm_cfg: &GlobalConfig,
+    clmm_pool: &mut Pool<CoinTypeA, CoinTypeB>,
+    spot_price: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    let (_, bounty_opt, coin_a_out, coin_b_out, _, _, _) = cycle_live(v, q, cfg, clmm_cfg, clmm_pool, spot_price, clock, ctx);
+    if (option::is_some(&bounty_opt)) {
+        let bounty = option::destroy_some(bounty_opt);
+        transfer::public_transfer(bounty, tx_context::sender(ctx));
+    } else {
+        option::destroy_none(bounty_opt);
+    };
+    if (coin::value(&coin_a_out) > 0) {
+        transfer::public_transfer(coin_a_out, tx_context::sender(ctx));
+    } else {
+        coin::destroy_zero(coin_a_out);
+    };
+    if (coin::value(&coin_b_out) > 0) {
+        transfer::public_transfer(coin_b_out, tx_context::sender(ctx));
+    } else {
+        coin::destroy_zero(coin_b_out);
+    };
 }

@@ -227,10 +227,12 @@ What is included now:
 - local Move validation now sits at `101/101 PASS` and `95.92%` overall coverage
 - local Cetus wrapper tests now cover `open / add / remove / swap / amount` flows
 - explicit live LP helper path now includes `open_position_into_vault / rebalance_live / close_stored_position_from_vault`
+- `cetus_live` now also has a `cycle_live` path that can auto-close a stored live Position under stress / queue pressure when the operator passes the real pool objects
 - vault now persists live Cetus metadata for `open -> hold snapshot -> close`
 - a real `Scallop` supply probe script now exists: `python scripts/scallop_supply_probe.py --help`
 - latest Scallop mainnet proof succeeded: `depositQuick -> query -> withdrawQuick` now has a real archived report under `out/reports/scallop_supply_probe_20260307T120021Z.json`
 - vault now also has live yield metadata / bookkeeping hooks ready for a real lending leg
+- `scripts/scallop_core_bridge.py` now provides the operator bridge for syncing a successful Scallop report back into Vault bookkeeping, while explicitly blocking unsafe cross-network syncs
 - oracle volatility is now based on return-style EWMA instead of simple TWAP deviation
 - reserve math now uses an explicit `reserve_target = max(queue, ratio, floor)` style model, and `monitor_sui.py` now prints reserve-derived fields (`q_score`, reserve target, deployable)
 

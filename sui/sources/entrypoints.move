@@ -803,6 +803,41 @@ public fun cycle_entry<BASE>(
     };
 }
 
+public fun sync_live_yield_deposit_entry<BASE>(
+    v: &mut Vault<BASE>,
+    cfg: &config::Config,
+    _cap: &config::AdminCap,
+    receipt_id: address,
+    deposited_value: u64,
+    current_value: u64,
+    clock: &clock::Clock,
+) {
+    record_live_yield_deposit(v, cfg, receipt_id, deposited_value, current_value, clock::timestamp_ms(clock));
+}
+
+public fun sync_live_yield_hold_entry<BASE>(
+    v: &mut Vault<BASE>,
+    cfg: &config::Config,
+    _cap: &config::AdminCap,
+    receipt_id: address,
+    current_value: u64,
+    clock: &clock::Clock,
+) {
+    record_live_yield_hold(v, cfg, receipt_id, current_value, clock::timestamp_ms(clock));
+}
+
+public fun sync_live_yield_withdraw_entry<BASE>(
+    v: &mut Vault<BASE>,
+    cfg: &config::Config,
+    _cap: &config::AdminCap,
+    receipt_id: address,
+    withdrawn_value: u64,
+    remaining_value: u64,
+    clock: &clock::Clock,
+) {
+    record_live_yield_withdraw(v, cfg, receipt_id, withdrawn_value, remaining_value, clock::timestamp_ms(clock));
+}
+
 #[test_only]
 public fun deploy_for_testing<BASE>(v: &mut Vault<BASE>, amount: u64) {
     assert!(amount > 0, errors::e_zero_amount());

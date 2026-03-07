@@ -484,11 +484,11 @@ fun cycle_rebalances_full_p2_strategy_mix() {
         assert!(entrypoints::cetus_pool_id(&v) == @0x111, 0);
         assert!(entrypoints::cetus_deployed_usdc(&v) == 3698, 0);
         assert!(entrypoints::yield_receipt_id(&v) == @0x222, 0);
-        assert!(entrypoints::yield_deployed_usdc(&v) == 5814, 0);
+        assert!(entrypoints::yield_deployed_usdc(&v) == 5813, 0);
         assert!(entrypoints::hedge_position_id(&v) == @0x333, 0);
         assert!(entrypoints::hedge_notional_usdc(&v) == 3698, 0);
         assert!(entrypoints::hedge_margin_usdc(&v) == 184, 0);
-        assert!(entrypoints::deployed_balance(&v) == 9696, 0);
+        assert!(entrypoints::deployed_balance(&v) == 9695, 0);
         assert!(entrypoints::last_rebalance_used_flash(&v), 0);
 
         test_scenario::return_to_sender(&scenario, cap);

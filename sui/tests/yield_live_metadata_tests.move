@@ -69,3 +69,44 @@ fun live_yield_metadata_tracks_deposit_hold_and_withdraw() {
 
     test_scenario::end(scenario);
 }
+
+#[test]
+fun live_yield_entry_wrappers_update_metadata() {
+    let admin = @0x1;
+    let mut scenario = test_scenario::begin(admin);
+    test_scenario::create_system_objects(&mut scenario);
+
+    {
+        let sdye_treasury = coin::create_treasury_cap_for_testing<sdye::SDYE>(test_scenario::ctx(&mut scenario));
+        entrypoints::bootstrap<usdc::USDC>(sdye_treasury, 0, 0, test_scenario::ctx(&mut scenario));
+    };
+    test_scenario::next_tx(&mut scenario, admin);
+
+    {
+        let mut clock = test_scenario::take_shared<sui::clock::Clock>(&scenario);
+        sui::clock::set_for_testing(&mut clock, 5_000);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let cap = test_scenario::take_from_sender<config::AdminCap>(&scenario);
+
+        config::set_lending_market_id(&mut cfg, &cap, @0x222);
+        entrypoints::sync_live_yield_deposit_entry(&mut v, &cfg, &cap, @0xabc, 1_000, 1_050, &clock);
+        assert!(entrypoints::live_yield_last_action_code(&v) == yield_source::live_yield_action_deposit(), 0);
+
+        sui::clock::set_for_testing(&mut clock, 6_000);
+        entrypoints::sync_live_yield_hold_entry(&mut v, &cfg, &cap, @0xabc, 1_100, &clock);
+        assert!(entrypoints::live_yield_last_action_code(&v) == yield_source::live_yield_action_hold(), 0);
+
+        sui::clock::set_for_testing(&mut clock, 7_000);
+        entrypoints::sync_live_yield_withdraw_entry(&mut v, &cfg, &cap, @0xabc, 1_100, 0, &clock);
+        assert!(entrypoints::live_yield_last_action_code(&v) == yield_source::live_yield_action_withdraw_full(), 0);
+        assert!(!entrypoints::live_yield_position_present(&v), 0);
+
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(cfg);
+        test_scenario::return_to_sender(&scenario, cap);
+    };
+
+    test_scenario::end(scenario);
+}

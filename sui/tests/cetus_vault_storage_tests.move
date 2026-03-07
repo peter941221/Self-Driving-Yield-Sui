@@ -299,6 +299,93 @@ fun rebalance_live_without_stored_position_returns_zero_snapshot() {
     test_scenario::end(scenario);
 }
 
+#[test]
+fun cycle_live_closes_stored_position_under_queue_pressure() {
+    let admin = @0x1;
+    let mut scenario = test_scenario::begin(admin);
+    test_scenario::create_system_objects(&mut scenario);
+
+    {
+        let sdye_treasury = coin::create_treasury_cap_for_testing<sdye::SDYE>(test_scenario::ctx(&mut scenario));
+        entrypoints::bootstrap<usdc::USDC>(sdye_treasury, 0, 0, test_scenario::ctx(&mut scenario));
+    };
+    test_scenario::next_tx(&mut scenario, admin);
+
+    {
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let mut cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let cap = test_scenario::take_from_sender<config::AdminCap>(&scenario);
+
+        let (clock, clmm_admin_cap, clmm_cfg) = init_clmm(test_scenario::ctx(&mut scenario));
+        let mut pool = pool_tests::create_pool<pool_tests::CoinA, pool_tests::CoinB>(
+            100,
+            tick_math::get_sqrt_price_at_tick(pool_tests::pt(0)),
+            2000,
+            0,
+            &clock,
+            test_scenario::ctx(&mut scenario),
+        );
+        let pool_id = object::id(&pool);
+        config::set_cetus_pool_id(&mut cfg, &cap, object::id_to_address(&pool_id));
+
+        let usdc_in = coin::mint_for_testing<usdc::USDC>(10_000, test_scenario::ctx(&mut scenario));
+        let mut shares = entrypoints::deposit(&mut v, usdc_in, &clock, test_scenario::ctx(&mut scenario));
+
+        let coin_a_in = coin::mint_for_testing<pool_tests::CoinA>(100_000, test_scenario::ctx(&mut scenario));
+        let coin_b_in = coin::mint_for_testing<pool_tests::CoinB>(100_000, test_scenario::ctx(&mut scenario));
+        let (change_a, change_b) = cetus_live::open_position_into_vault<usdc::USDC, pool_tests::CoinA, pool_tests::CoinB>(
+            &mut v,
+            &cfg,
+            &clmm_cfg,
+            &mut pool,
+            coin_a_in,
+            coin_b_in,
+            4294966296,
+            1000,
+            10_000,
+            true,
+            &clock,
+            test_scenario::ctx(&mut scenario),
+        );
+        transfer::public_transfer(change_a, admin);
+        transfer::public_transfer(change_b, admin);
+        assert!(entrypoints::has_stored_cetus_position(&v), 0);
+
+        entrypoints::deploy_for_testing(&mut v, 9_000);
+        let withdraw_shares = coin::split(&mut shares, 5_000, test_scenario::ctx(&mut scenario));
+        let (_, base_opt) = entrypoints::request_withdraw(&mut v, &mut q, withdraw_shares, &clock, test_scenario::ctx(&mut scenario));
+        option::destroy_none(base_opt);
+        transfer::public_transfer(shares, admin);
+
+        let (_, bounty_opt, out_a, out_b, action_code, _, _) = cetus_live::cycle_live<usdc::USDC, pool_tests::CoinA, pool_tests::CoinB>(
+            &mut v,
+            &mut q,
+            &cfg,
+            &clmm_cfg,
+            &mut pool,
+            1_000_000_000,
+            &clock,
+            test_scenario::ctx(&mut scenario),
+        );
+        option::destroy_none(bounty_opt);
+        assert!(action_code == 3, 0);
+        assert!(!entrypoints::has_stored_cetus_position(&v), 0);
+        assert!(!entrypoints::live_cetus_position_present(&v), 0);
+        assert!(coin::value(&out_a) > 0 || coin::value(&out_b) > 0, 0);
+        transfer::public_transfer(out_a, admin);
+        transfer::public_transfer(out_b, admin);
+
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+        test_scenario::return_to_sender(&scenario, cap);
+        cleanup_clmm(pool, clmm_admin_cap, clmm_cfg, clock);
+    };
+
+    test_scenario::end(scenario);
+}
+
 #[test, expected_failure(abort_code = errors::E_MISSING_OBJECT, location = self_driving_yield::entrypoints)]
 fun stored_position_id_aborts_when_missing() {
     let admin = @0x1;
