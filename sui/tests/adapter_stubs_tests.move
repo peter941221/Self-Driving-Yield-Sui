@@ -42,6 +42,11 @@ fun adapter_accounting_helpers_work_when_configured() {
     let receipt = yield_source::deposit_to_lending(&cfg, 5_000);
     assert!(receipt == @0x222, 0);
     assert!(yield_source::accrue_yield(&cfg, 5_000) == 5_001, 0);
+    assert!(yield_source::normalize_live_receipt_id(&cfg, @0xabc, 5_001) == @0xabc, 0);
+    assert!(yield_source::principal_after_live_deposit(10_000, 5_000) == 15_000, 0);
+    assert!(yield_source::principal_after_live_withdraw(5_000, 5_001, 2_000) == 3_001, 0);
+    assert!(yield_source::value_after_live_withdraw(5_001, 2_000) == 3_001, 0);
+    assert!(yield_source::accrued_yield_amount(5_000, 5_001) == 1, 0);
 
     let (next_receipt, withdrawn, remaining) =
         yield_source::withdraw_from_lending(&cfg, receipt, 5_001, 2_000);
@@ -75,6 +80,7 @@ fun adapter_edge_cases_cover_unavailable_zero_and_boundary_paths() {
     assert!(yield_source::unstake_lst(&cfg, 4_321) == 4_321, 0);
     assert!(yield_source::deposit_to_lending(&cfg, 0) == @0x0, 0);
     assert!(yield_source::deposit_to_lending(&cfg, 999) == @0x0, 0);
+    assert!(yield_source::normalize_live_receipt_id(&cfg, @0xabc, 999) == @0x0, 0);
 
     let (next_receipt, withdrawn, remaining) =
         yield_source::withdraw_from_lending(&cfg, @0x222, 123, 999);
@@ -85,6 +91,9 @@ fun adapter_edge_cases_cover_unavailable_zero_and_boundary_paths() {
     assert!(yield_source::accrue_yield(&cfg, 0) == 0, 0);
     assert!(yield_source::accrue_yield(&cfg, 123) == 123, 0);
     assert!(yield_source::get_yield_value(&cfg, 777) == 777, 0);
+    assert!(yield_source::principal_after_live_withdraw(777, 0, 100) == 0, 0);
+    assert!(yield_source::value_after_live_withdraw(777, 999) == 0, 0);
+    assert!(yield_source::accrued_yield_amount(777, 700) == 0, 0);
 
     assert!(perp_hedge::initial_margin_bps() == 500, 0);
     assert!(perp_hedge::required_margin(3_700) == 185, 0);

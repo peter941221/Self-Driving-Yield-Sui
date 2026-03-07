@@ -4,6 +4,18 @@ use self_driving_yield::errors;
 use self_driving_yield::oracle;
 use self_driving_yield::vault;
 
+fun feed_constant_return_series(s: &mut oracle::OracleState, start_price: u64, return_bps: u64, count: u64) {
+    let mut ts: u64 = 0;
+    let mut price = start_price;
+    let mut i: u64 = 0;
+    while (i < count) {
+        ts = ts + 1000;
+        let _ = oracle::record_snapshot_with_ts(s, price, ts, 0);
+        price = ((price as u128) * ((10000 + return_bps) as u128) / 10000) as u64;
+        i = i + 1;
+    };
+}
+
 #[test]
 fun cold_start_forces_normal_until_min_samples() {
     let mut s = oracle::new();
@@ -32,17 +44,7 @@ fun regime_boundary_99bps_is_calm() {
     let mut s = oracle::new();
     let p = oracle::price_precision();
 
-    // twap will be exactly p, mean abs deviation = 0.99% => 99 bps
-    let hi = p + 9_900_000; // +0.99%
-    let lo = p - 9_900_000; // -0.99%
-    let mut ts: u64 = 0;
-    let mut i: u64 = 0;
-    while (i < 12) {
-        ts = ts + 1000;
-        let price = if (i % 2 == 0) { hi } else { lo };
-        let _ = oracle::record_snapshot_with_ts(&mut s, price, ts, 0);
-        i = i + 1;
-    };
+    feed_constant_return_series(&mut s, p, 99, 12);
 
     assert!(oracle::current_volatility_bps(&s) == 99, 0);
     let r = oracle::current_regime(&s);
@@ -54,17 +56,7 @@ fun regime_boundary_100bps_is_normal() {
     let mut s = oracle::new();
     let p = oracle::price_precision();
 
-    // mean abs deviation = 1.00% => 100 bps
-    let hi = p + 10_000_000;
-    let lo = p - 10_000_000;
-    let mut ts: u64 = 0;
-    let mut i: u64 = 0;
-    while (i < 12) {
-        ts = ts + 1000;
-        let price = if (i % 2 == 0) { hi } else { lo };
-        let _ = oracle::record_snapshot_with_ts(&mut s, price, ts, 0);
-        i = i + 1;
-    };
+    feed_constant_return_series(&mut s, p, 100, 12);
 
     assert!(oracle::current_volatility_bps(&s) == 100, 0);
     let r = oracle::current_regime(&s);
@@ -76,17 +68,7 @@ fun regime_boundary_101bps_is_normal() {
     let mut s = oracle::new();
     let p = oracle::price_precision();
 
-    // mean abs deviation = 1.01% => 101 bps
-    let hi = p + 10_100_000;
-    let lo = p - 10_100_000;
-    let mut ts: u64 = 0;
-    let mut i: u64 = 0;
-    while (i < 12) {
-        ts = ts + 1000;
-        let price = if (i % 2 == 0) { hi } else { lo };
-        let _ = oracle::record_snapshot_with_ts(&mut s, price, ts, 0);
-        i = i + 1;
-    };
+    feed_constant_return_series(&mut s, p, 101, 12);
 
     assert!(oracle::current_volatility_bps(&s) == 101, 0);
     let r = oracle::current_regime(&s);
@@ -98,17 +80,7 @@ fun regime_boundary_299bps_is_normal() {
     let mut s = oracle::new();
     let p = oracle::price_precision();
 
-    // mean abs deviation = 2.99% => 299 bps
-    let hi = p + 29_900_000;
-    let lo = p - 29_900_000;
-    let mut ts: u64 = 0;
-    let mut i: u64 = 0;
-    while (i < 12) {
-        ts = ts + 1000;
-        let price = if (i % 2 == 0) { hi } else { lo };
-        let _ = oracle::record_snapshot_with_ts(&mut s, price, ts, 0);
-        i = i + 1;
-    };
+    feed_constant_return_series(&mut s, p, 299, 12);
 
     assert!(oracle::current_volatility_bps(&s) == 299, 0);
     let r = oracle::current_regime(&s);
@@ -120,17 +92,7 @@ fun regime_boundary_301bps_is_storm() {
     let mut s = oracle::new();
     let p = oracle::price_precision();
 
-    // mean abs deviation = 3.01% => 301 bps
-    let hi = p + 30_100_000;
-    let lo = p - 30_100_000;
-    let mut ts: u64 = 0;
-    let mut i: u64 = 0;
-    while (i < 12) {
-        ts = ts + 1000;
-        let price = if (i % 2 == 0) { hi } else { lo };
-        let _ = oracle::record_snapshot_with_ts(&mut s, price, ts, 0);
-        i = i + 1;
-    };
+    feed_constant_return_series(&mut s, p, 301, 12);
 
     assert!(oracle::current_volatility_bps(&s) == 301, 0);
     let r = oracle::current_regime(&s);
@@ -142,17 +104,7 @@ fun regime_boundary_300bps_is_storm() {
     let mut s = oracle::new();
     let p = oracle::price_precision();
 
-    // mean abs deviation = 3.00% => 300 bps
-    let hi = p + 30_000_000;
-    let lo = p - 30_000_000;
-    let mut ts: u64 = 0;
-    let mut i: u64 = 0;
-    while (i < 12) {
-        ts = ts + 1000;
-        let price = if (i % 2 == 0) { hi } else { lo };
-        let _ = oracle::record_snapshot_with_ts(&mut s, price, ts, 0);
-        i = i + 1;
-    };
+    feed_constant_return_series(&mut s, p, 300, 12);
 
     assert!(oracle::current_volatility_bps(&s) == 300, 0);
     let r = oracle::current_regime(&s);

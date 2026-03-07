@@ -387,28 +387,33 @@ fun only_unwind_requires_two_safe_cycles_to_restore() {
     let mut o = oracle::new();
 
     let p = oracle::price_precision();
-    let hi = p + 30_000_000;
-    let lo = p - 30_000_000;
+    let mut storm_price = p;
 
     let mut ts: u64 = 0;
     let mut i: u64 = 0;
     while (i < 12) {
         ts = ts + 1000;
-        let price = if (i % 2 == 0) { hi } else { lo };
-        vault::cycle(&mut s, &mut q, &mut o, price, ts, 0, 0);
+        vault::cycle(&mut s, &mut q, &mut o, storm_price, ts, 0, 0);
+        storm_price = ((storm_price as u128) * 10300 / 10000) as u64;
         i = i + 1;
     };
 
     assert!(vault::is_only_unwind(&vault::risk_mode(&s)), 0);
     assert!(vault::safe_cycles_since_storm(&s) == 0, 0);
 
-    ts = ts + 1000;
-    vault::cycle(&mut s, &mut q, &mut o, p, ts, 0, 0);
+    let mut guard: u64 = 0;
+    while (vault::safe_cycles_since_storm(&s) == 0) {
+        ts = ts + 1000;
+        vault::cycle(&mut s, &mut q, &mut o, storm_price, ts, 0, 0);
+        guard = guard + 1;
+        assert!(guard <= 16, 0);
+    };
+
     assert!(vault::is_only_unwind(&vault::risk_mode(&s)), 0);
     assert!(vault::safe_cycles_since_storm(&s) == 1, 0);
 
     ts = ts + 1000;
-    vault::cycle(&mut s, &mut q, &mut o, p, ts, 0, 0);
+    vault::cycle(&mut s, &mut q, &mut o, storm_price, ts, 0, 0);
     assert!(!vault::is_only_unwind(&vault::risk_mode(&s)), 0);
     assert!(vault::safe_cycles_since_storm(&s) == vault::safe_cycles_to_restore(), 0);
 }

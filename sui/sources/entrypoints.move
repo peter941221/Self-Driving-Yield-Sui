@@ -33,6 +33,8 @@ public struct Vault<phantom BASE> has key, store {
     yield_receipt_id: address,
     yield_deployed_usdc: u64,
     yield_last_rebalance_ts_ms: u64,
+    live_yield_address_slots: vector<address>,
+    live_yield_metric_slots: vector<u64>,
     hedge_position_id: address,
     hedge_notional_usdc: u64,
     hedge_margin_usdc: u64,
@@ -92,6 +94,16 @@ const LIVE_CETUS_ACTION_OPEN: u64 = 1;
 const LIVE_CETUS_ACTION_HOLD: u64 = 2;
 const LIVE_CETUS_ACTION_CLOSE: u64 = 3;
 
+const LIVE_YIELD_ACTION_NONE: u64 = 0;
+const LIVE_YIELD_ADDRESS_MARKET_IDX: u64 = 0;
+const LIVE_YIELD_ADDRESS_RECEIPT_IDX: u64 = 1;
+const LIVE_YIELD_METRIC_ENABLED_IDX: u64 = 0;
+const LIVE_YIELD_METRIC_PRESENT_IDX: u64 = 1;
+const LIVE_YIELD_METRIC_PRINCIPAL_IDX: u64 = 2;
+const LIVE_YIELD_METRIC_VALUE_IDX: u64 = 3;
+const LIVE_YIELD_METRIC_SNAPSHOT_TS_IDX: u64 = 4;
+const LIVE_YIELD_METRIC_ACTION_IDX: u64 = 5;
+
 fun total_deployed_internal<BASE>(v: &Vault<BASE>): u64 {
     let cetus = balance::value(&v.cetus_balance);
     let y = balance::value(&v.yield_balance);
@@ -119,7 +131,15 @@ fun sync_strategy_metadata<BASE>(v: &mut Vault<BASE>, cfg: &config::Config, ts_m
     let y = balance::value(&v.yield_balance);
     v.yield_deployed_usdc = y;
     v.yield_last_rebalance_ts_ms = ts_ms;
-    v.yield_receipt_id = if (y > 0 && yield_source::is_available(cfg)) { config::lending_market_id(cfg) } else { @0x0 };
+    sync_yield_live_presence(v, cfg);
+    let live_receipt_id = live_yield_address_slot(v, LIVE_YIELD_ADDRESS_RECEIPT_IDX);
+    v.yield_receipt_id = if (live_receipt_id != @0x0) {
+        live_receipt_id
+    } else if (y > 0 && yield_source::is_available(cfg)) {
+        config::lending_market_id(cfg)
+    } else {
+        @0x0
+    };
 
     let hedge = balance::value(&v.hedge_margin_balance);
     v.hedge_margin_usdc = hedge;
@@ -133,11 +153,56 @@ fun sync_strategy_metadata<BASE>(v: &mut Vault<BASE>, cfg: &config::Config, ts_m
     }
 }
 
+fun bool_to_u64(v: bool): u64 {
+    if (v) { 1 } else { 0 }
+}
+
+fun u64_to_bool(v: u64): bool { v != 0 }
+
+fun set_live_yield_address_slot<BASE>(v: &mut Vault<BASE>, idx: u64, value: address) {
+    *vector::borrow_mut(&mut v.live_yield_address_slots, idx) = value;
+}
+
+fun set_live_yield_metric_slot<BASE>(v: &mut Vault<BASE>, idx: u64, value: u64) {
+    *vector::borrow_mut(&mut v.live_yield_metric_slots, idx) = value;
+}
+
+fun live_yield_address_slot<BASE>(v: &Vault<BASE>, idx: u64): address {
+    *vector::borrow(&v.live_yield_address_slots, idx)
+}
+
+fun live_yield_metric_slot<BASE>(v: &Vault<BASE>, idx: u64): u64 {
+    *vector::borrow(&v.live_yield_metric_slots, idx)
+}
+
 fun sync_cetus_live_presence<BASE>(v: &mut Vault<BASE>, cfg: &config::Config) {
     v.live_cetus_enabled = cetus_amm::is_available(cfg);
     v.live_cetus_position_present = has_stored_cetus_position(v);
     if (v.live_cetus_position_present) {
         v.live_cetus_last_position_id = stored_cetus_position_id(v);
+    }
+}
+
+fun sync_yield_live_presence<BASE>(v: &mut Vault<BASE>, cfg: &config::Config) {
+    let enabled = yield_source::is_available(cfg);
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_ENABLED_IDX, bool_to_u64(enabled));
+    set_live_yield_address_slot(v, LIVE_YIELD_ADDRESS_MARKET_IDX, if (enabled) { config::lending_market_id(cfg) } else { @0x0 });
+    let normalized_receipt = yield_source::normalize_live_receipt_id(
+        cfg,
+        live_yield_address_slot(v, LIVE_YIELD_ADDRESS_RECEIPT_IDX),
+        live_yield_metric_slot(v, LIVE_YIELD_METRIC_VALUE_IDX),
+    );
+    set_live_yield_address_slot(v, LIVE_YIELD_ADDRESS_RECEIPT_IDX, normalized_receipt);
+    let present = normalized_receipt != @0x0;
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_PRESENT_IDX, bool_to_u64(present));
+    if (!present) {
+        set_live_yield_address_slot(v, LIVE_YIELD_ADDRESS_RECEIPT_IDX, @0x0);
+        if (live_yield_metric_slot(v, LIVE_YIELD_METRIC_VALUE_IDX) == 0) {
+            set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_PRINCIPAL_IDX, 0);
+            if (live_yield_metric_slot(v, LIVE_YIELD_METRIC_ACTION_IDX) == LIVE_YIELD_ACTION_NONE) {
+                set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_SNAPSHOT_TS_IDX, 0);
+            }
+        }
     }
 }
 
@@ -199,6 +264,84 @@ public(package) fun record_cetus_live_close<BASE>(
     v.live_cetus_last_principal_b = 0;
     v.live_cetus_last_snapshot_ts_ms = ts_ms;
     v.live_cetus_last_action_code = LIVE_CETUS_ACTION_CLOSE;
+}
+
+public(package) fun record_live_yield_deposit<BASE>(
+    v: &mut Vault<BASE>,
+    cfg: &config::Config,
+    receipt_id: address,
+    deposited_value: u64,
+    current_value: u64,
+    ts_ms: u64,
+) {
+    sync_yield_live_presence(v, cfg);
+    let enabled = yield_source::is_available(cfg);
+    let next_receipt = yield_source::normalize_live_receipt_id(cfg, receipt_id, current_value);
+    let next_principal = yield_source::principal_after_live_deposit(live_yield_metric_slot(v, LIVE_YIELD_METRIC_PRINCIPAL_IDX), deposited_value);
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_ENABLED_IDX, bool_to_u64(enabled));
+    set_live_yield_address_slot(v, LIVE_YIELD_ADDRESS_MARKET_IDX, if (enabled) { config::lending_market_id(cfg) } else { @0x0 });
+    set_live_yield_address_slot(v, LIVE_YIELD_ADDRESS_RECEIPT_IDX, next_receipt);
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_PRESENT_IDX, bool_to_u64(next_receipt != @0x0));
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_PRINCIPAL_IDX, next_principal);
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_VALUE_IDX, current_value);
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_SNAPSHOT_TS_IDX, ts_ms);
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_ACTION_IDX, yield_source::live_yield_action_deposit());
+    v.yield_receipt_id = next_receipt;
+    v.yield_last_rebalance_ts_ms = ts_ms;
+}
+
+public(package) fun record_live_yield_hold<BASE>(
+    v: &mut Vault<BASE>,
+    cfg: &config::Config,
+    receipt_id: address,
+    current_value: u64,
+    ts_ms: u64,
+) {
+    sync_yield_live_presence(v, cfg);
+    let enabled = yield_source::is_available(cfg);
+    let next_receipt = yield_source::normalize_live_receipt_id(cfg, receipt_id, current_value);
+    let present = next_receipt != @0x0;
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_ENABLED_IDX, bool_to_u64(enabled));
+    set_live_yield_address_slot(v, LIVE_YIELD_ADDRESS_MARKET_IDX, if (enabled) { config::lending_market_id(cfg) } else { @0x0 });
+    set_live_yield_address_slot(v, LIVE_YIELD_ADDRESS_RECEIPT_IDX, next_receipt);
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_PRESENT_IDX, bool_to_u64(present));
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_VALUE_IDX, current_value);
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_SNAPSHOT_TS_IDX, ts_ms);
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_ACTION_IDX, if (present) { yield_source::live_yield_action_hold() } else { LIVE_YIELD_ACTION_NONE });
+    v.yield_receipt_id = next_receipt;
+    v.yield_last_rebalance_ts_ms = ts_ms;
+}
+
+public(package) fun record_live_yield_withdraw<BASE>(
+    v: &mut Vault<BASE>,
+    cfg: &config::Config,
+    receipt_id: address,
+    withdrawn_value: u64,
+    remaining_value: u64,
+    ts_ms: u64,
+) {
+    let next_principal = yield_source::principal_after_live_withdraw(
+        live_yield_metric_slot(v, LIVE_YIELD_METRIC_PRINCIPAL_IDX),
+        live_yield_metric_slot(v, LIVE_YIELD_METRIC_VALUE_IDX),
+        withdrawn_value,
+    );
+    sync_yield_live_presence(v, cfg);
+    let enabled = yield_source::is_available(cfg);
+    let next_receipt = yield_source::normalize_live_receipt_id(cfg, receipt_id, remaining_value);
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_ENABLED_IDX, bool_to_u64(enabled));
+    set_live_yield_address_slot(v, LIVE_YIELD_ADDRESS_MARKET_IDX, if (enabled) { config::lending_market_id(cfg) } else { @0x0 });
+    set_live_yield_address_slot(v, LIVE_YIELD_ADDRESS_RECEIPT_IDX, next_receipt);
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_PRESENT_IDX, bool_to_u64(next_receipt != @0x0));
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_PRINCIPAL_IDX, next_principal);
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_VALUE_IDX, remaining_value);
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_SNAPSHOT_TS_IDX, ts_ms);
+    set_live_yield_metric_slot(v, LIVE_YIELD_METRIC_ACTION_IDX, if (remaining_value == 0) {
+        yield_source::live_yield_action_withdraw_full()
+    } else {
+        yield_source::live_yield_action_withdraw_partial()
+    });
+    v.yield_receipt_id = next_receipt;
+    v.yield_last_rebalance_ts_ms = ts_ms;
 }
 
 fun assert_vault_synced<BASE>(v: &Vault<BASE>) {
@@ -279,7 +422,8 @@ fun target_strategy_mix<BASE>(
 
     let regime = oracle::current_regime(&v.oracle);
     let (yield_bps, lp_bps, buffer_bps) = vault::get_allocation(&regime);
-    let buffer_target = math::mul_div(total_assets, buffer_bps, 10000);
+    let adjusted_buffer_bps = types::adjusted_buffer_bps(buffer_bps, total_assets, queued_need);
+    let buffer_target = math::mul_div(total_assets, adjusted_buffer_bps, 10000);
     let reserved_liquidity = if (buffer_target > queued_need) { buffer_target } else { queued_need };
     let max_deployable = if (total_assets > reserved_liquidity) { total_assets - reserved_liquidity } else { 0 };
     let lp_nominal = if (cetus_amm::is_available(cfg)) { math::mul_div(total_assets, lp_bps, 10000) } else { 0 };
@@ -396,6 +540,14 @@ public fun cetus_deployed_usdc<BASE>(v: &Vault<BASE>): u64 { v.cetus_deployed_us
 public fun cetus_last_rebalance_ts_ms<BASE>(v: &Vault<BASE>): u64 { v.cetus_last_rebalance_ts_ms }
 public fun yield_receipt_id<BASE>(v: &Vault<BASE>): address { v.yield_receipt_id }
 public fun yield_deployed_usdc<BASE>(v: &Vault<BASE>): u64 { v.yield_deployed_usdc }
+public fun live_yield_enabled<BASE>(v: &Vault<BASE>): bool { u64_to_bool(live_yield_metric_slot(v, LIVE_YIELD_METRIC_ENABLED_IDX)) }
+public fun live_yield_position_present<BASE>(v: &Vault<BASE>): bool { u64_to_bool(live_yield_metric_slot(v, LIVE_YIELD_METRIC_PRESENT_IDX)) }
+public fun live_yield_last_market_id<BASE>(v: &Vault<BASE>): address { live_yield_address_slot(v, LIVE_YIELD_ADDRESS_MARKET_IDX) }
+public fun live_yield_last_receipt_id<BASE>(v: &Vault<BASE>): address { live_yield_address_slot(v, LIVE_YIELD_ADDRESS_RECEIPT_IDX) }
+public fun live_yield_last_principal<BASE>(v: &Vault<BASE>): u64 { live_yield_metric_slot(v, LIVE_YIELD_METRIC_PRINCIPAL_IDX) }
+public fun live_yield_last_value<BASE>(v: &Vault<BASE>): u64 { live_yield_metric_slot(v, LIVE_YIELD_METRIC_VALUE_IDX) }
+public fun live_yield_last_snapshot_ts_ms<BASE>(v: &Vault<BASE>): u64 { live_yield_metric_slot(v, LIVE_YIELD_METRIC_SNAPSHOT_TS_IDX) }
+public fun live_yield_last_action_code<BASE>(v: &Vault<BASE>): u64 { live_yield_metric_slot(v, LIVE_YIELD_METRIC_ACTION_IDX) }
 public fun hedge_position_id<BASE>(v: &Vault<BASE>): address { v.hedge_position_id }
 public fun hedge_notional_usdc<BASE>(v: &Vault<BASE>): u64 { v.hedge_notional_usdc }
 public fun hedge_margin_usdc<BASE>(v: &Vault<BASE>): u64 { v.hedge_margin_usdc }
@@ -431,6 +583,8 @@ public fun bootstrap<BASE>(
         yield_receipt_id: @0x0,
         yield_deployed_usdc: 0,
         yield_last_rebalance_ts_ms: 0,
+        live_yield_address_slots: vector[@0x0, @0x0],
+        live_yield_metric_slots: vector[0, 0, 0, 0, 0, LIVE_YIELD_ACTION_NONE],
         hedge_position_id: @0x0,
         hedge_notional_usdc: 0,
         hedge_margin_usdc: 0,

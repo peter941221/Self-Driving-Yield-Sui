@@ -36,3 +36,19 @@ public fun mul_div(x: u64, y: u64, d: u64): u64 {
     assert!(q <= (U64_MAX as u128), errors::e_overflow());
     q as u64
 }
+
+/// Integer square root for u128, rounded down.
+public fun sqrt_u128(x: u128): u64 {
+    if (x == 0) {
+        return 0
+    };
+
+    let mut z = x;
+    let mut y = (x + 1) / 2;
+    while (y < z) {
+        z = y;
+        y = (x / y + y) / 2;
+    };
+    assert!(z <= (U64_MAX as u128), errors::e_overflow());
+    z as u64
+}

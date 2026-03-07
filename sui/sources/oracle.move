@@ -1,6 +1,7 @@
 module self_driving_yield::oracle;
 
 use self_driving_yield::errors;
+use self_driving_yield::math;
 use self_driving_yield::types;
 
 const MIN_SAMPLES: u64 = 12;
@@ -9,6 +10,7 @@ const PRICE_PRECISION: u64 = 1000000000;
 
 const CALM_VOL_BPS: u64 = 100;
 const STORM_VOL_BPS: u64 = 300;
+const EWMA_LAMBDA_BPS: u64 = 9400;
 
 public struct PriceSnapshot has copy, drop, store {
     ts_ms: u64,
@@ -21,6 +23,7 @@ public struct OracleState has store, drop {
     snapshot_count: u64,
     last_snapshot_ts_ms: u64,
     current_twap: u64,
+    ewma_variance_bps2: u128,
     current_volatility_bps: u64,
     current_regime: types::Regime,
 }
@@ -28,6 +31,7 @@ public struct OracleState has store, drop {
 public fun price_precision(): u64 { PRICE_PRECISION }
 public fun min_samples(): u64 { MIN_SAMPLES }
 public fun max_snapshots(): u64 { MAX_SNAPSHOTS }
+public fun ewma_lambda_bps(): u64 { EWMA_LAMBDA_BPS }
 
 public fun new(): OracleState {
     OracleState {
@@ -35,6 +39,7 @@ public fun new(): OracleState {
         snapshot_count: 0,
         last_snapshot_ts_ms: 0,
         current_twap: 0,
+        ewma_variance_bps2: 0,
         current_volatility_bps: 0,
         current_regime: types::regime_normal(),
     }
@@ -72,6 +77,20 @@ public fun record_snapshot_with_ts(
         return false
     };
 
+    if (s.snapshot_count > 0) {
+        let prev_price = vector::borrow(&s.snapshots, s.snapshot_count - 1).price;
+        let diff = if (price >= prev_price) { price - prev_price } else { prev_price - price };
+        let ret_bps = ((diff as u128) * 10000 + ((prev_price as u128) / 2)) / (prev_price as u128);
+        let ret_sq = ret_bps * ret_bps;
+        if (s.snapshot_count == 1) {
+            s.ewma_variance_bps2 = ret_sq;
+        } else {
+            s.ewma_variance_bps2 = (
+                s.ewma_variance_bps2 * (EWMA_LAMBDA_BPS as u128) + ret_sq * ((10000 - EWMA_LAMBDA_BPS) as u128) + 5000
+            ) / 10000;
+        }
+    };
+
     if (s.snapshot_count < MAX_SNAPSHOTS) {
         vector::push_back(&mut s.snapshots, PriceSnapshot { ts_ms, price });
         s.snapshot_count = s.snapshot_count + 1;
@@ -89,6 +108,7 @@ public fun record_snapshot_with_ts(
 fun recompute(s: &mut OracleState) {
     if (s.snapshot_count == 0) {
         s.current_twap = 0;
+        s.ewma_variance_bps2 = 0;
         s.current_volatility_bps = 0;
         s.current_regime = types::regime_normal();
         return
@@ -109,24 +129,13 @@ fun recompute(s: &mut OracleState) {
     s.current_twap = twap;
 
     if (count < 2 || twap == 0) {
+        s.ewma_variance_bps2 = 0;
         s.current_volatility_bps = 0;
         s.current_regime = compute_regime(count, 0);
         return
     };
 
-    let mut sum_abs: u128 = 0;
-    i = 0;
-    while (i < count) {
-        let snap_ref = vector::borrow(&s.snapshots, i);
-        let p = snap_ref.price;
-        let diff = if (p >= twap) { p - twap } else { twap - p };
-        sum_abs = sum_abs + (diff as u128);
-        i = i + 1;
-    };
-
-    let denom: u128 = (twap as u128) * (count as u128);
-    let vol_bps_u128 = (sum_abs * 10000) / denom;
-    let vol_bps: u64 = vol_bps_u128 as u64;
+    let vol_bps = math::sqrt_u128(s.ewma_variance_bps2);
 
     s.current_volatility_bps = vol_bps;
     s.current_regime = compute_regime(count, vol_bps);

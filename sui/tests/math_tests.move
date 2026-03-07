@@ -36,6 +36,16 @@ fun mul_div_large_numbers_exact() {
 }
 
 #[test]
+fun sqrt_u128_basic() {
+    assert!(math::sqrt_u128(0) == 0, 0);
+    assert!(math::sqrt_u128(1) == 1, 0);
+    assert!(math::sqrt_u128(15) == 3, 0);
+    assert!(math::sqrt_u128(16) == 4, 0);
+    assert!(math::sqrt_u128(17) == 4, 0);
+    assert!(math::sqrt_u128((10_000u128) * (10_000u128)) == 10_000, 0);
+}
+
+#[test]
 fun safe_mul_zero_returns_zero() {
     assert!(math::safe_mul(0, 123) == 0, 0);
     assert!(math::safe_mul(123, 0) == 0, 0);

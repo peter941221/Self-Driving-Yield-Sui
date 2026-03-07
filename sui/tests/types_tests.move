@@ -44,3 +44,13 @@ fun allocation_sums_to_10k_bps() {
     let (y, lp, buf) = types::get_allocation(&storm);
     assert!(y + lp + buf == 10000, 0);
 }
+
+#[test]
+fun adjusted_buffer_bps_grows_with_queue_pressure() {
+    assert!(types::adjusted_buffer_bps(300, 0, 0) == 300, 0);
+    assert!(types::adjusted_buffer_bps(300, 10_000, 999) == 300, 0);
+    assert!(types::adjusted_buffer_bps(300, 10_000, 1_000) == 400, 0);
+    assert!(types::adjusted_buffer_bps(300, 10_000, 2_500) == 550, 0);
+    assert!(types::adjusted_buffer_bps(300, 10_000, 5_000) == 800, 0);
+    assert!(types::adjusted_buffer_bps(900, 10_000, 5_000) == types::max_adjusted_buffer_bps(), 0);
+}

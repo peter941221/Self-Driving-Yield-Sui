@@ -179,15 +179,14 @@ fun storm_queue_pressure_unwinds_and_restores_after_two_safe_cycles() {
         let cfg = test_scenario::take_shared<config::Config>(&scenario);
 
         let p = oracle::price_precision();
-        let hi = p + 30_000_000;
-        let lo = p - 30_000_000;
         let mut ts = 2000;
         let mut i = 0;
-        while (i < 12) {
+        let mut storm_price = p;
+        while (i < 12u64) {
             clock::set_for_testing(&mut clock, ts);
-            let spot = if (i % 2u64 == 0) { hi } else { lo };
-            let (_, bounty_opt) = entrypoints::cycle(&mut v, &mut q, &cfg, spot, &clock, test_scenario::ctx(&mut scenario));
+            let (_, bounty_opt) = entrypoints::cycle(&mut v, &mut q, &cfg, storm_price, &clock, test_scenario::ctx(&mut scenario));
             option::destroy_none(bounty_opt);
+            storm_price = ((storm_price as u128) * 10300 / 10000) as u64;
             ts = ts + 1000;
             i = i + 1;
         };
@@ -200,15 +199,21 @@ fun storm_queue_pressure_unwinds_and_restores_after_two_safe_cycles() {
         assert!(entrypoints::deployed_balance(&v) == 5_000, 0);
         assert_balance_invariant(&v);
 
-        clock::set_for_testing(&mut clock, ts);
-        let (_, bounty_opt_1) = entrypoints::cycle(&mut v, &mut q, &cfg, p, &clock, test_scenario::ctx(&mut scenario));
-        option::destroy_none(bounty_opt_1);
+        let mut guard: u64 = 0;
+        while (entrypoints::safe_cycles_since_storm(&v) == 0) {
+            clock::set_for_testing(&mut clock, ts);
+            let (_, bounty_opt) = entrypoints::cycle(&mut v, &mut q, &cfg, storm_price, &clock, test_scenario::ctx(&mut scenario));
+            option::destroy_none(bounty_opt);
+            ts = ts + 1000;
+            guard = guard + 1;
+            assert!(guard <= 16, 0);
+        };
+
         assert!(entrypoints::is_only_unwind_mode(&v), 0);
         assert!(entrypoints::safe_cycles_since_storm(&v) == 1, 0);
 
-        ts = ts + 1000;
         clock::set_for_testing(&mut clock, ts);
-        let (_, bounty_opt_2) = entrypoints::cycle(&mut v, &mut q, &cfg, p, &clock, test_scenario::ctx(&mut scenario));
+        let (_, bounty_opt_2) = entrypoints::cycle(&mut v, &mut q, &cfg, storm_price, &clock, test_scenario::ctx(&mut scenario));
         option::destroy_none(bounty_opt_2);
         assert!(!entrypoints::is_only_unwind_mode(&v), 0);
         assert!(entrypoints::safe_cycles_since_storm(&v) == 2, 0);

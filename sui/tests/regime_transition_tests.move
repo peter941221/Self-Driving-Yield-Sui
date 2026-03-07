@@ -20,6 +20,10 @@ fun transfer_bounty_if_any<BASE>(bounty_opt: option::Option<coin::Coin<BASE>>, r
     };
 }
 
+fun next_price_with_return_bps(price: u64, return_bps: u64): u64 {
+    ((price as u128) * ((10000 + return_bps) as u128) / 10000) as u64
+}
+
 #[test]
 fun calm_regime_rebalances_toward_yield_bucket() {
     let admin = @0x1;
@@ -49,14 +53,12 @@ fun calm_regime_rebalances_toward_yield_bucket() {
         transfer::public_transfer(shares, admin);
 
         let p = oracle::price_precision();
-        let hi = p + 9_900_000;
-        let lo = p - 9_900_000;
         let mut ts: u64 = 0;
         let mut i: u64 = 0;
+        let mut price = p;
         while (i < 12) {
             ts = ts + 1000;
             clock::set_for_testing(&mut clock, ts);
-            let price = if (i % 2 == 0) { hi } else { lo };
             let (_, bounty_opt) = entrypoints::cycle(
                 &mut v,
                 &mut q,
@@ -66,6 +68,7 @@ fun calm_regime_rebalances_toward_yield_bucket() {
                 test_scenario::ctx(&mut scenario),
             );
             transfer_bounty_if_any(bounty_opt, admin);
+            price = next_price_with_return_bps(price, 99);
             i = i + 1;
         };
 
