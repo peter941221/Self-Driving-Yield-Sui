@@ -1,6 +1,9 @@
 module self_driving_yield::queue_tests;
 
+use self_driving_yield::errors;
 use self_driving_yield::queue;
+use self_driving_yield::sdye;
+use sui::balance;
 
 #[test]
 fun enqueue_increments_ids_and_tracks_pending_totals() {
@@ -96,3 +99,54 @@ fun queue_helper_functions_are_usable() {
     let r2 = queue::request_at(&q, 0);
     assert!(queue::is_claimed(&queue::status(&r2)), 0);
 }
+
+
+#[test]
+#[expected_failure(abort_code = errors::E_REQUEST_NOT_READY, location = self_driving_yield::queue)]
+fun claim_ready_rejects_pending_request() {
+    let mut q = queue::new_state();
+    let _ = queue::enqueue(&mut q, @0x1, 10, 100, 1);
+    queue::claim_ready(&mut q, 0);
+}
+
+#[test]
+#[expected_failure(abort_code = errors::E_ZERO_AMOUNT, location = self_driving_yield::queue)]
+fun enqueue_rejects_zero_shares() {
+    let mut q = queue::new_state();
+    let _ = queue::enqueue(&mut q, @0x1, 0, 100, 1);
+}
+
+#[test]
+#[expected_failure(abort_code = errors::E_ZERO_USDC_OUT, location = self_driving_yield::queue)]
+fun enqueue_rejects_zero_usdc() {
+    let mut q = queue::new_state();
+    let _ = queue::enqueue(&mut q, @0x1, 10, 0, 1);
+}
+
+
+#[test]
+fun queue_wrapper_locks_releases_and_claims_ready_requests() {
+    let mut ctx = tx_context::dummy();
+    let mut q = queue::new_queue(&mut ctx);
+
+    let id = queue::enqueue(queue::state_mut(&mut q), @0x1, 7, 70, 123);
+    let shares = balance::create_for_testing<sdye::SDYE>(7);
+    queue::lock_shares_for_new_request(&mut q, id, shares);
+
+    let mut treasury = 70;
+    let moved = queue::process_queue(queue::state_mut(&mut q), &mut treasury);
+    assert!(moved == 1, 0);
+    assert!(treasury == 0, 0);
+    assert!(queue::total_ready_usdc(queue::state(&q)) == 70, 0);
+
+    queue::claim_ready(queue::state_mut(&mut q), id);
+    let req = queue::borrow_request(queue::state(&q), id);
+    assert!(queue::is_claimed(&queue::status(req)), 0);
+    assert!(queue::total_ready_usdc(queue::state(&q)) == 0, 0);
+
+    let locked = queue::take_locked_shares(&mut q, id);
+    assert!(balance::destroy_for_testing(locked) == 7, 0);
+    transfer::public_share_object(q);
+}
+
+

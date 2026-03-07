@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 import argparse
+import datetime
 import json
+import re
 import subprocess
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,10 +74,24 @@ def find_object_id_by_type(payload, type_fragment):
 
 
 def list_owned_objects(address):
-    return run_json(["sui", "client", "objects", address, "--json"])
+    return run(["sui", "client", "objects", address])
 
 
 def find_owned_object_id_by_type(payload, type_fragment):
+    if isinstance(payload, str):
+        pattern = re.compile(
+            r"objectId\s*│\s*(0x[a-fA-F0-9]+).*?version\s*│\s*(\d+).*?objectType\s*│\s*([^\r\n]+)",
+            re.DOTALL,
+        )
+        candidates = []
+        for object_id, version, object_type in pattern.findall(payload):
+            if type_fragment in object_type:
+                candidates.append((int(version), object_id))
+        if not candidates:
+            raise SystemExit(f"Unable to find owned object type containing: {type_fragment}")
+        candidates.sort(reverse=True)
+        return candidates[0][1]
+
     candidates = []
     for item in walk_dicts(payload):
         object_type = item.get("type") or item.get("objectType")
@@ -90,6 +107,21 @@ def find_owned_object_id_by_type(payload, type_fragment):
         raise SystemExit(f"Unable to find owned object type containing: {type_fragment}")
     candidates.sort(reverse=True)
     return candidates[0][1]
+
+
+def normalize_address(value):
+    if not isinstance(value, str) or not value.startswith("0x"):
+        raise SystemExit(f"Expected hex address, got: {value}")
+    hex_part = value[2:]
+    if not hex_part:
+        raise SystemExit(f"Expected non-empty hex address, got: {value}")
+    try:
+        int(hex_part, 16)
+    except ValueError as exc:
+        raise SystemExit(f"Invalid hex address: {value}") from exc
+    if len(hex_part) > 64:
+        raise SystemExit(f"Address too long: {value}")
+    return "0x" + hex_part.lower().zfill(64)
 
 
 def move_call(package_id, module, function, args, type_args=None, gas_budget=50_000_000):
@@ -113,6 +145,30 @@ def print_step(title, detail):
     print(f"[+] {title}: {detail}")
 
 
+def load_published_package_id(package_path, env_name):
+    published_path = package_path / "Published.toml"
+    if not published_path.exists():
+        return None
+    try:
+        payload = tomllib.loads(published_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return payload.get("published", {}).get(env_name, {}).get("published-at")
+
+
+def backup_and_remove_published_file(package_path):
+    published_path = package_path / "Published.toml"
+    if not published_path.exists():
+        return None
+    backup_dir = ROOT / "out" / "published_backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    backup_path = backup_dir / f"Published.{timestamp}.toml"
+    backup_path.write_text(published_path.read_text(encoding="utf-8"), encoding="utf-8")
+    published_path.unlink()
+    return backup_path
+
+
 def main():
     parser = argparse.ArgumentParser(description="Publish, initialize, configure, and seal the Self-Driving Yield Sui package")
     parser.add_argument("--base-type", required=True, help="Base asset type tag, e.g. 0xdba3...::usdc::USDC")
@@ -127,25 +183,37 @@ def main():
     parser.add_argument("--gas-budget-call", type=int, default=80_000_000)
     parser.add_argument("--manifest-out", default="", help="Output JSON manifest path (default: out/deployments/<env>.json)")
     parser.add_argument("--skip-seal", action="store_true", help="Leave Config mutable after initialization")
+    parser.add_argument("--force-publish", action="store_true", help="Ignore Published.toml and publish a fresh package using an ephemeral pubfile")
     args = parser.parse_args()
 
     env_name = active_env()
     sender = active_address()
+    package_path = Path(args.package_path).resolve()
     manifest_path = Path(args.manifest_out) if args.manifest_out else ROOT / "out" / "deployments" / f"{env_name}.json"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
     print_step("env", env_name)
     print_step("sender", sender)
 
-    publish_payload = run_json([
-        "sui", "client", "publish", str(Path(args.package_path)),
-        "--gas-budget", str(args.gas_budget_publish),
-        "--json",
-    ], cwd=ROOT)
-    publish_digest = extract_digest(publish_payload)
-    published_tx = tx_block(publish_digest)
-    package_id = find_package_id(published_tx)
-    print_step("published", f"package={package_id} digest={publish_digest}")
+    publish_digest = None
+    package_id = None if args.force_publish else load_published_package_id(package_path, env_name)
+    if package_id:
+        print_step("published", f"reusing package={package_id} from Published.toml")
+    else:
+        if args.force_publish:
+            backup_path = backup_and_remove_published_file(package_path)
+            if backup_path:
+                print_step("publish mode", f"force-publish after backing up {backup_path}")
+        publish_cmd = [
+            "sui", "client", "publish", ".",
+            "--gas-budget", str(args.gas_budget_publish),
+            "--json",
+        ]
+        publish_payload = run_json(publish_cmd, cwd=package_path)
+        publish_digest = extract_digest(publish_payload)
+        published_tx = tx_block(publish_digest)
+        package_id = find_package_id(published_tx)
+        print_step("published", f"package={package_id} digest={publish_digest}")
 
     owned_objects = list_owned_objects(sender)
     sdye_treasury_id = find_owned_object_id_by_type(owned_objects, f"TreasuryCap<{package_id}::sdye::SDYE>")
@@ -181,17 +249,18 @@ def main():
     ]
     applied = {}
     for function_name, value in setters:
-        if value.lower() == "0x0":
+        normalized_value = normalize_address(value)
+        if int(normalized_value, 16) == 0:
             continue
         digest, _ = move_call(
             package_id,
             "config",
             function_name,
-            [config_id, admin_cap_id, value],
+            [config_id, admin_cap_id, normalized_value],
             gas_budget=args.gas_budget_call,
         )
-        applied[function_name] = {"value": value, "digest": digest}
-        print_step(function_name, value)
+        applied[function_name] = {"value": normalized_value, "digest": digest}
+        print_step(function_name, normalized_value)
 
     seal_digest = None
     if not args.skip_seal:

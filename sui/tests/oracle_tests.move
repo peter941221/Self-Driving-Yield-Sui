@@ -1,5 +1,6 @@
 module self_driving_yield::oracle_tests;
 
+use self_driving_yield::errors;
 use self_driving_yield::oracle;
 use self_driving_yield::vault;
 
@@ -198,3 +199,40 @@ fun ring_buffer_caps_at_max_and_twap_uses_last_48() {
     // (46*p + 2*2p)/48 = 50p/48 = 1.041666666p (floor)
     assert!(oracle::current_twap(&s) == 1_041_666_666, 0);
 }
+
+
+#[test]
+fun oracle_helper_accessors_are_consistent() {
+    let s = oracle::new();
+
+    assert!(oracle::price_precision() == 1_000_000_000, 0);
+    assert!(oracle::min_samples() == 12, 0);
+    assert!(oracle::max_snapshots() == 48, 0);
+    assert!(oracle::snapshot_count(&s) == 0, 0);
+    assert!(oracle::last_snapshot_ts_ms(&s) == 0, 0);
+    assert!(oracle::current_twap(&s) == 0, 0);
+    assert!(oracle::current_volatility_bps(&s) == 0, 0);
+    assert!(vault::is_regime_normal(&oracle::current_regime(&s)), 0);
+}
+
+#[test]
+fun compute_regime_helper_covers_all_paths() {
+    let cold = oracle::compute_regime(0, 999);
+    let calm = oracle::compute_regime(oracle::min_samples(), 99);
+    let normal = oracle::compute_regime(oracle::min_samples(), 100);
+    let storm = oracle::compute_regime(oracle::min_samples(), 300);
+
+    assert!(vault::is_regime_normal(&cold), 0);
+    assert!(vault::is_regime_calm(&calm), 0);
+    assert!(vault::is_regime_normal(&normal), 0);
+    assert!(vault::is_regime_storm(&storm), 0);
+}
+
+#[test]
+#[expected_failure(abort_code = errors::E_ZERO_AMOUNT, location = self_driving_yield::oracle)]
+fun zero_price_snapshot_aborts() {
+    let mut s = oracle::new();
+    let _ = oracle::record_snapshot_with_ts(&mut s, 0, 1000, 0);
+}
+
+

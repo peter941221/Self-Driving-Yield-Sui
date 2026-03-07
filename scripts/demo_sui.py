@@ -132,7 +132,7 @@ def main():
     deposit_digest, deposit_tx = move_call(
         package_id,
         "entrypoints",
-        "deposit",
+        "deposit_entry",
         [manifest["vault_id"], deposit_coin_id, args.clock_id],
         type_args=[base_type],
         gas_budget=args.gas_budget,
@@ -143,7 +143,7 @@ def main():
     cycle1_digest, _ = move_call(
         package_id,
         "entrypoints",
-        "cycle",
+        "cycle_entry",
         [manifest["vault_id"], manifest["queue_id"], manifest["config_id"], args.spot_price_entry, args.clock_id],
         type_args=[base_type],
         gas_budget=args.gas_budget,
@@ -153,7 +153,7 @@ def main():
     withdraw_digest, withdraw_tx = move_call(
         package_id,
         "entrypoints",
-        "request_withdraw",
+        "request_withdraw_entry",
         [manifest["vault_id"], manifest["queue_id"], share_coin_id, args.clock_id],
         type_args=[base_type],
         gas_budget=args.gas_budget,
@@ -173,7 +173,7 @@ def main():
     cycle2_digest, _ = move_call(
         package_id,
         "entrypoints",
-        "cycle",
+        "cycle_entry",
         [manifest["vault_id"], manifest["queue_id"], manifest["config_id"], args.spot_price_exit, args.clock_id],
         type_args=[base_type],
         gas_budget=args.gas_budget,
@@ -184,7 +184,7 @@ def main():
     claim_digest, _ = move_call(
         package_id,
         "entrypoints",
-        "claim",
+        "claim_entry",
         [manifest["vault_id"], manifest["queue_id"], str(request_id), args.clock_id],
         type_args=[base_type],
         gas_budget=args.gas_budget,

@@ -9,7 +9,7 @@
     <img src="https://img.shields.io/badge/Demo-Video-red?style=for-the-badge&logo=youtube" alt="Demo Video">
   </a>
   <img src="https://img.shields.io/badge/Platform-Sui%20Move-yellow?style=for-the-badge" alt="Platform">
-  <img src="https://img.shields.io/badge/Stage-P4%20Ready-brightgreen?style=for-the-badge" alt="Stage">
+  <img src="https://img.shields.io/badge/Stage-P5%20Live%20Integration-brightgreen?style=for-the-badge" alt="Stage">
   <img src="https://img.shields.io/badge/Sui%20Framework-testnet%20%40%204e8aa9e-blue?style=for-the-badge" alt="Sui Framework">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License">
 </p>
@@ -213,6 +213,7 @@ P1  Core modules + unit tests                  [DONE]
 P2  Strategy orchestration + adapter accounting [DONE]
 P3  Lifecycle + concurrency + safety tests      [DONE locally]
 P4  Deployment readiness artifacts              [DONE]
+P5  Live testnet integration                    [IN PROGRESS: smoke OK]
 ```
 
 What is included now:
@@ -222,12 +223,15 @@ What is included now:
 - config freeze support for deployment finalization
 - event surface for monitoring and alerting
 - deploy / monitor / demo scripts for operator workflows
+- funded testnet smoke path completed with `deposit + 12 cycles`
+- local Move validation now sits at `84/84 PASS` and `95.60%` overall coverage
+- local Cetus wrapper tests now cover `open / add / remove / swap / amount` flows
 
 What is still intentionally out of scope for this repo snapshot:
 
-- real live Cetus position-NFT lifecycle integration
 - prover-based formal verification (`sui move prove` not available locally)
 - one-click mainnet publish from CI without operator wallet / gas
+- production-grade hosted dashboards / alert routing beyond the local scripts
 
 ---
 
@@ -417,12 +421,24 @@ In other words: the repo is **deployment-ready**, but the final mainnet transact
 
 ## Testing Snapshot
 
-Latest local validation after P3/P4 changes:
+Latest local validation after the coverage + wrapper sprint:
 
-- `sui move test` -> all tests pass
-- `sui move coverage summary` -> overall coverage is still below the aspirational `95%`
-- strongest module coverage remains on core accounting / queue / oracle / vault paths
-- weakest coverage remains protocol-wrapper territory and live-integration gaps
+- `sui move test` -> `84/84 PASS`
+- `sui move coverage summary` -> `95.60%` overall
+- key module snapshot -> `entrypoints 95.72%`, `queue 96.34%`, `oracle 95.44%`, `vault 93.89%`, `cetus_amm 88.63%`
+- live-integration risk still matters more than raw local coverage, especially around real shared objects and operator flows
+
+Coverage progress from this sprint:
+
+| Area | Before | After |
+|---|---:|---:|
+| Total coverage | 92.91% | 95.60% |
+| Total tests | 73 | 84 |
+| `entrypoints` | 90.87% | 95.72% |
+| `queue` | 92.39% | 96.34% |
+| `oracle` | 91.23% | 95.44% |
+| `vault` | 93.26% | 93.89% |
+| `cetus_amm` | 88.63% | 88.63% |
 
 Testing pyramid used in this repo:
 
@@ -433,6 +449,34 @@ Testing pyramid used in this repo:
      /--------    /   P1     \  unit tests per module
    /----------  /    P0      \ research / interfaces / economics
 ```
+
+---
+
+## Upgrade Strategy
+
+What matters now:
+
+- The repo is currently a **single Sui package**, so upgradeability is decided at the package level, not per module.
+- That means `immutable core + timelocked adapters` is a good target architecture, but it is **not fully achievable in the current package layout**.
+
+Recommended decision:
+
+```text
+[Current single-package layout]
+      |
+      +--> v1 recommendation: publish immutable after P5 sign-off
+      |
+      +--> if future adapter churn is expected:
+              split adapters into a separate package first
+              then keep core immutable + adapters behind timelock
+```
+
+Why this is the safest default:
+
+- `vault / queue / oracle / share accounting` carry the highest invariant risk.
+- keeping the whole package upgradeable just to patch adapters leaves the core mutable too.
+- if adapter flexibility is genuinely needed, package split is the clean boundary.
+- `config.seal()` should still be part of the launch path even for an immutable release.
 
 ---
 
@@ -482,3 +526,4 @@ If you want to keep shipping after P4, the next high-value items are:
    +--> testnet dry-run with live package IDs
    +--> operator dashboard / hosted alerting
 ```
+

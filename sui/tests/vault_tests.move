@@ -429,3 +429,17 @@ fun calm_normal_storm_calm_allocation_path_is_consistent() {
     assert!(lp_storm < lp_normal, 0);
     assert!(buf_calm == 300 && buf_normal == 300 && buf_storm == 300, 0);
 }
+
+#[test]
+fun set_risk_mode_restores_safe_counter_when_back_to_normal() {
+    let mut s = vault::new_state();
+
+    vault::set_risk_mode(&mut s, vault::risk_only_unwind());
+    assert!(vault::is_only_unwind(&vault::risk_mode(&s)), 0);
+    assert!(vault::safe_cycles_since_storm(&s) == 0, 0);
+
+    vault::set_risk_mode(&mut s, vault::risk_normal());
+    assert!(!vault::is_only_unwind(&vault::risk_mode(&s)), 0);
+    assert!(vault::safe_cycles_since_storm(&s) == vault::safe_cycles_to_restore(), 0);
+    assert!(vault::max_bounty_bps() == 5, 0);
+}

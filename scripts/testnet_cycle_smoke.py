@@ -58,9 +58,9 @@ def active_address():
     return run(["sui", "client", "active-address"])
 
 
-def largest_gas_coin():
+def gas_coin_summary():
     payload = run_json(["sui", "client", "gas", "--json"])
-    candidates = []
+    balances_by_coin = {}
     for item in walk_dicts(payload):
         coin_id = item.get("gasCoinId") or item.get("coinObjectId") or item.get("objectId")
         mist = item.get("mistBalance") or item.get("balance")
@@ -69,11 +69,12 @@ def largest_gas_coin():
                 amount = int(mist)
             except Exception:
                 amount = 0
-            candidates.append((amount, coin_id))
-    if not candidates:
-        return None, 0
-    candidates.sort(reverse=True)
-    return candidates[0][1], candidates[0][0]
+            balances_by_coin[coin_id] = max(amount, balances_by_coin.get(coin_id, 0))
+    if not balances_by_coin:
+        return None, 0, 0
+    candidates = sorted(((amount, coin_id) for coin_id, amount in balances_by_coin.items()), reverse=True)
+    total_balance = sum(balances_by_coin.values())
+    return candidates[0][1], candidates[0][0], total_balance
 
 
 def find_created_object_id(payload, type_fragment):
@@ -142,8 +143,8 @@ def query_module_events(package_id, module_name, limit=50):
     return body["result"].get("data", [])
 
 
-def deploy_if_needed(manifest_path, base_type, gas_budget_publish, gas_budget_call):
-    if manifest_path.exists():
+def deploy_if_needed(manifest_path, base_type, gas_budget_publish, gas_budget_call, force_publish=False):
+    if manifest_path.exists() and not force_publish:
         return json.loads(manifest_path.read_text())
     cmd = [
         "python", "scripts/deploy_sui.py",
@@ -154,6 +155,8 @@ def deploy_if_needed(manifest_path, base_type, gas_budget_publish, gas_budget_ca
         "--gas-budget-call", str(gas_budget_call),
         "--manifest-out", str(manifest_path),
     ]
+    if force_publish:
+        cmd.append("--force-publish")
     run(cmd, cwd=ROOT)
     return json.loads(manifest_path.read_text())
 
@@ -170,6 +173,7 @@ def main():
     parser.add_argument("--sleep-seconds", type=int, default=0)
     parser.add_argument("--price-series", default=",".join(str(x) for x in DEFAULT_PRICE_SERIES))
     parser.add_argument("--report-out", default="")
+    parser.add_argument("--force-publish", action="store_true")
     args = parser.parse_args()
 
     manifest_path = Path(args.manifest)
@@ -184,15 +188,18 @@ def main():
         "steps": [],
     }
 
-    coin_id, balance = largest_gas_coin()
-    report["preflight_balance_mist"] = balance
-    if not coin_id or balance <= args.deposit_amount + args.gas_budget_publish + args.gas_budget_call * (args.cycles + 3):
+    coin_id, split_coin_balance, total_balance = gas_coin_summary()
+    required_balance = args.deposit_amount + args.gas_budget_publish + args.gas_budget_call * (args.cycles + 3)
+    report["preflight_split_coin_balance_mist"] = split_coin_balance
+    report["preflight_total_balance_mist"] = total_balance
+    report["preflight_required_balance_mist"] = required_balance
+    if not coin_id or split_coin_balance < args.deposit_amount or total_balance <= required_balance:
         report["status"] = "blocked_no_testnet_gas"
-        report["blocker"] = "No funded testnet SUI coin available for publish + deposit + 10+ cycles"
+        report["blocker"] = "Need one coin large enough to split the deposit and enough total wallet balance for publish + deposit + cycles"
         report_path.write_text(json.dumps(report, indent=2))
         raise SystemExit(f"Blocked: insufficient testnet balance. Report written to {report_path}")
 
-    manifest = deploy_if_needed(manifest_path, args.base_type, args.gas_budget_publish, args.gas_budget_call)
+    manifest = deploy_if_needed(manifest_path, args.base_type, args.gas_budget_publish, args.gas_budget_call, force_publish=args.force_publish)
     report["manifest"] = str(manifest_path)
     report["package_id"] = manifest["package_id"]
     report["vault_id"] = manifest["vault_id"]
@@ -206,7 +213,7 @@ def main():
     deposit_digest, _ = move_call(
         manifest["package_id"],
         "entrypoints",
-        "deposit",
+        "deposit_entry",
         [manifest["vault_id"], deposit_coin_id, args.clock_id],
         type_args=[args.base_type],
         gas_budget=args.gas_budget_call,
@@ -220,7 +227,7 @@ def main():
         cycle_digest, _ = move_call(
             manifest["package_id"],
             "entrypoints",
-            "cycle",
+            "cycle_entry",
             [manifest["vault_id"], manifest["queue_id"], manifest["config_id"], spot_price, args.clock_id],
             type_args=[args.base_type],
             gas_budget=args.gas_budget_call,

@@ -10,6 +10,7 @@ model-calls.jsonl
 # Node (PoCs / tooling)
 node_modules/
 **/node_modules/
+__pycache__/
 *.tsbuildinfo
 # PoC build output
 poc/**/dist/
@@ -18,6 +19,7 @@ poc/**/dist/
 /demo/
 
 # Local memory docs (do not push)
+/AGENTS.md
 /MEMORY.md
 
 # Private technical docs (do not push)
@@ -32,6 +34,7 @@ poc/**/dist/
 /sui/build/
 /sui/.trace
 /sui/.coverage_map.mvcov
+/sui/Published.toml
 
 # Local MOVE_HOME cache
 /m/

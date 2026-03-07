@@ -193,17 +193,20 @@ fun target_strategy_mix<BASE>(
     let regime = oracle::current_regime(&v.oracle);
     let (yield_bps, lp_bps, buffer_bps) = vault::get_allocation(&regime);
     let buffer_target = math::mul_div(total_assets, buffer_bps, 10000);
+    let reserved_liquidity = if (buffer_target > queued_need) { buffer_target } else { queued_need };
+    let max_deployable = if (total_assets > reserved_liquidity) { total_assets - reserved_liquidity } else { 0 };
     let lp_nominal = if (cetus_amm::is_available(cfg)) { math::mul_div(total_assets, lp_bps, 10000) } else { 0 };
-    let hedge_margin_target = if (perp_hedge::is_available(cfg) && lp_nominal > 0) { perp_hedge::required_margin(lp_nominal) } else { 0 };
-    let required_liquidity = math::safe_add(
-        if (buffer_target > queued_need) { buffer_target } else { queued_need },
-        hedge_margin_target,
-    );
-    let max_deployable = if (total_assets > required_liquidity) { total_assets - required_liquidity } else { 0 };
-    let target_lp = if (lp_nominal < max_deployable) { lp_nominal } else { max_deployable };
+    let lp_capacity = if (perp_hedge::is_available(cfg) && lp_nominal > 0) {
+        math::mul_div(max_deployable, 10000, 10000 + perp_hedge::initial_margin_bps())
+    } else {
+        max_deployable
+    };
+    let target_lp = if (lp_nominal < lp_capacity) { lp_nominal } else { lp_capacity };
+    let hedge_margin_target = if (perp_hedge::is_available(cfg) && target_lp > 0) { perp_hedge::required_margin(target_lp) } else { 0 };
 
     let yield_nominal = if (yield_source::is_available(cfg)) { math::mul_div(total_assets, yield_bps, 10000) } else { 0 };
-    let remaining_after_lp = if (max_deployable > target_lp) { max_deployable - target_lp } else { 0 };
+    let deployable_after_hedge = if (max_deployable > hedge_margin_target) { max_deployable - hedge_margin_target } else { 0 };
+    let remaining_after_lp = if (deployable_after_hedge > target_lp) { deployable_after_hedge - target_lp } else { 0 };
     let target_yield = if (yield_nominal < remaining_after_lp) { yield_nominal } else { remaining_after_lp };
 
     (target_lp, target_yield, hedge_margin_target)
@@ -332,6 +335,16 @@ public fun deposit<BASE>(
     sdye::mint_shares(&mut v.sdye_treasury, shares_out, ctx)
 }
 
+public fun deposit_entry<BASE>(
+    v: &mut Vault<BASE>,
+    base_in: coin::Coin<BASE>,
+    clock: &clock::Clock,
+    ctx: &mut TxContext,
+) {
+    let shares = deposit(v, base_in, clock, ctx);
+    transfer::public_transfer(shares, tx_context::sender(ctx));
+}
+
 public fun request_withdraw<BASE>(
     v: &mut Vault<BASE>,
     q: &mut queue::WithdrawalQueue,
@@ -382,6 +395,22 @@ public fun request_withdraw<BASE>(
     }
 }
 
+public fun request_withdraw_entry<BASE>(
+    v: &mut Vault<BASE>,
+    q: &mut queue::WithdrawalQueue,
+    shares_in: coin::Coin<sdye::SDYE>,
+    clock: &clock::Clock,
+    ctx: &mut TxContext,
+) {
+    let (_, base_opt) = request_withdraw(v, q, shares_in, clock, ctx);
+    if (option::is_some(&base_opt)) {
+        let base_out = option::destroy_some(base_opt);
+        transfer::public_transfer(base_out, tx_context::sender(ctx));
+    } else {
+        option::destroy_none(base_opt);
+    };
+}
+
 public fun claim<BASE>(
     v: &mut Vault<BASE>,
     q: &mut queue::WithdrawalQueue,
@@ -401,6 +430,17 @@ public fun claim<BASE>(
     assert_vault_synced(v);
     event::emit(ClaimedEvent { sender, request_id, assets_out: base_out_amount });
     base_out
+}
+
+public fun claim_entry<BASE>(
+    v: &mut Vault<BASE>,
+    q: &mut queue::WithdrawalQueue,
+    request_id: u64,
+    clock: &clock::Clock,
+    ctx: &mut TxContext,
+) {
+    let base_out = claim(v, q, request_id, clock, ctx);
+    transfer::public_transfer(base_out, tx_context::sender(ctx));
 }
 
 public fun cycle<BASE>(
@@ -459,6 +499,23 @@ public fun cycle<BASE>(
         used_flash: v.last_rebalance_used_flash,
     });
     (moved, bounty_opt)
+}
+
+public fun cycle_entry<BASE>(
+    v: &mut Vault<BASE>,
+    q: &mut queue::WithdrawalQueue,
+    cfg: &config::Config,
+    spot_price: u64,
+    clock: &clock::Clock,
+    ctx: &mut TxContext,
+) {
+    let (_, bounty_opt) = cycle(v, q, cfg, spot_price, clock, ctx);
+    if (option::is_some(&bounty_opt)) {
+        let bounty = option::destroy_some(bounty_opt);
+        transfer::public_transfer(bounty, tx_context::sender(ctx));
+    } else {
+        option::destroy_none(bounty_opt);
+    };
 }
 
 #[test_only]
