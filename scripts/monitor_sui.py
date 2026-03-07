@@ -8,6 +8,53 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+PENDING_RESERVE_HAIRCUT_BPS = 5000
+QUEUE_PRESSURE_LOW_BPS = 1000
+QUEUE_PRESSURE_MEDIUM_BPS = 2500
+QUEUE_PRESSURE_HIGH_BPS = 5000
+BUFFER_EXTRA_LOW_BPS = 100
+BUFFER_EXTRA_MEDIUM_BPS = 250
+BUFFER_EXTRA_HIGH_BPS = 500
+MAX_ADJUSTED_BUFFER_BPS = 1200
+EMERGENCY_BUFFER_FLOOR_USDC = 300
+
+
+def adjusted_buffer_bps(base_buffer_bps, total_assets, queued_need):
+    if total_assets == 0 or queued_need == 0:
+        return base_buffer_bps
+    queue_pressure_bps = (queued_need * 10000) // total_assets
+    if queue_pressure_bps >= QUEUE_PRESSURE_HIGH_BPS:
+        extra = BUFFER_EXTRA_HIGH_BPS
+    elif queue_pressure_bps >= QUEUE_PRESSURE_MEDIUM_BPS:
+        extra = BUFFER_EXTRA_MEDIUM_BPS
+    elif queue_pressure_bps >= QUEUE_PRESSURE_LOW_BPS:
+        extra = BUFFER_EXTRA_LOW_BPS
+    else:
+        extra = 0
+    return min(MAX_ADJUSTED_BUFFER_BPS, base_buffer_bps + extra)
+
+
+def reserve_metrics(total_assets, ready, pending, regime_code):
+    base_buffer_bps = 300
+    weighted_pending = (pending * PENDING_RESERVE_HAIRCUT_BPS) // 10000
+    queue_component = ready + weighted_pending
+    adjusted_buffer = adjusted_buffer_bps(base_buffer_bps, total_assets, ready + pending)
+    buffer_component = (total_assets * adjusted_buffer) // 10000 if total_assets else 0
+    floor_component = min(total_assets, EMERGENCY_BUFFER_FLOOR_USDC)
+    reserve_target = max(queue_component, buffer_component, floor_component)
+    q_score_bps = (queue_component * 10000) // total_assets if total_assets else 0
+    deployable = max(0, total_assets - reserve_target)
+    return {
+        "base_buffer_bps": base_buffer_bps,
+        "adjusted_buffer_bps": adjusted_buffer,
+        "queue_component": queue_component,
+        "buffer_component": buffer_component,
+        "floor_component": floor_component,
+        "reserve_target": reserve_target,
+        "deployable": deployable,
+        "q_score_bps": q_score_bps,
+        "regime_code": regime_code,
+    }
 
 
 def run(cmd):
@@ -126,10 +173,21 @@ def main():
         treasury = int(parsed.get("treasury_usdc", 0))
         ready = int(parsed.get("ready_usdc", 0))
         pending = int(parsed.get("pending_usdc", 0))
+        total_assets = int(parsed.get("total_assets", 0))
+        metrics = reserve_metrics(total_assets, ready, pending, int(parsed.get("regime_code", 1)))
+        print("\nReserve Model")
+        print("├─ Queue score bps:", metrics["q_score_bps"])
+        print("├─ Queue component:", metrics["queue_component"])
+        print("├─ Buffer component:", metrics["buffer_component"])
+        print("├─ Floor component:", metrics["floor_component"])
+        print("├─ Reserve target:", metrics["reserve_target"])
+        print("└─ Deployable:", metrics["deployable"])
         if ready > treasury:
             alerts.append("CRIT: ready withdrawals exceed treasury liquidity")
         elif pending > treasury:
             alerts.append("WARN: pending withdrawals exceed treasury liquidity")
+        if treasury < metrics["reserve_target"]:
+            alerts.append("WARN: treasury sits below derived reserve target")
         if parsed.get("used_flash"):
             alerts.append("INFO: latest rebalance used flash path")
 

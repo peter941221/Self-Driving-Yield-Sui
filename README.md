@@ -232,7 +232,7 @@ What is included now:
 - latest Scallop mainnet proof succeeded: `depositQuick -> query -> withdrawQuick` now has a real archived report under `out/reports/scallop_supply_probe_20260307T120021Z.json`
 - vault now also has live yield metadata / bookkeeping hooks ready for a real lending leg
 - oracle volatility is now based on return-style EWMA instead of simple TWAP deviation
-- reserve math now increases buffer pressure when queue demand becomes meaningful
+- reserve math now uses an explicit `reserve_target = max(queue, ratio, floor)` style model, and `monitor_sui.py` now prints reserve-derived fields (`q_score`, reserve target, deployable)
 
 What is still intentionally out of scope for this repo snapshot:
 

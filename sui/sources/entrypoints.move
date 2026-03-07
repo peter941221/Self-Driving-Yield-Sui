@@ -410,10 +410,9 @@ fun target_strategy_mix<BASE>(
     cfg: &config::Config,
 ): (u64, u64, u64) {
     let total_assets = vault::total_assets(&v.state);
-    let queued_need = math::safe_add(
-        queue::total_ready_usdc(queue::state(q)),
-        queue::total_pending_usdc(queue::state(q)),
-    );
+    let ready_usdc = queue::total_ready_usdc(queue::state(q));
+    let pending_usdc = queue::total_pending_usdc(queue::state(q));
+    let queued_need = math::safe_add(ready_usdc, pending_usdc);
 
     if (vault::is_only_unwind(&vault::risk_mode(&v.state))) {
         let target_yield = if (yield_source::is_available(cfg)) { balance::value(&v.yield_balance) } else { 0 };
@@ -422,9 +421,7 @@ fun target_strategy_mix<BASE>(
 
     let regime = oracle::current_regime(&v.oracle);
     let (yield_bps, lp_bps, buffer_bps) = vault::get_allocation(&regime);
-    let adjusted_buffer_bps = types::adjusted_buffer_bps(buffer_bps, total_assets, queued_need);
-    let buffer_target = math::mul_div(total_assets, adjusted_buffer_bps, 10000);
-    let reserved_liquidity = if (buffer_target > queued_need) { buffer_target } else { queued_need };
+    let reserved_liquidity = types::reserve_target_usdc(buffer_bps, total_assets, ready_usdc, pending_usdc);
     let max_deployable = if (total_assets > reserved_liquidity) { total_assets - reserved_liquidity } else { 0 };
     let lp_nominal = if (cetus_amm::is_available(cfg)) { math::mul_div(total_assets, lp_bps, 10000) } else { 0 };
     let lp_capacity = if (perp_hedge::is_available(cfg) && lp_nominal > 0) {

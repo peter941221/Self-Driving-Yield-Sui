@@ -54,3 +54,14 @@ fun adjusted_buffer_bps_grows_with_queue_pressure() {
     assert!(types::adjusted_buffer_bps(300, 10_000, 5_000) == 800, 0);
     assert!(types::adjusted_buffer_bps(900, 10_000, 5_000) == types::max_adjusted_buffer_bps(), 0);
 }
+
+#[test]
+fun reserve_target_uses_queue_ratio_and_floor() {
+    assert!(types::queue_pressure_score_bps(0, 0, 0) == 0, 0);
+    assert!(types::queue_pressure_score_bps(10_000, 1_000, 2_000) == 2_000, 0);
+
+    assert!(types::reserve_target_usdc(300, 10_000, 0, 0) == 300, 0);
+    assert!(types::reserve_target_usdc(300, 10_000, 100, 200) == 300, 0);
+    assert!(types::reserve_target_usdc(300, 10_000, 2_000, 2_000) == 3_000, 0);
+    assert!(types::reserve_target_usdc(300, 200, 0, 0) == 200, 0);
+}
