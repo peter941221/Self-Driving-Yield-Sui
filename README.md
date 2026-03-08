@@ -296,6 +296,14 @@ Current chaos scope:
 - monitor degraded paths: no-events alert, RPC error, malformed JSON, stale-cycle age alert, `OnlyUnwind` / reserve-pressure alert surfacing, and `used_flash` info surfacing
 - current local chaos suite: `12` deterministic experiments, all replayable without funded chain mutation
 
+### CI assurance
+
+The current CI workflow now runs three layers:
+
+- `move-tests`: installs `sui` via `suiup` and runs `cd sui && sui move test`
+- `formal`: runs `bash scripts/formal_verify_wsl.sh -v` equivalent on Linux CI
+- `chaos`: runs `python scripts/chaos_phase1.py`
+
 ### Windows short-path helper
 
 If your Windows path is too long for Move dependencies:

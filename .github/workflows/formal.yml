@@ -31,23 +31,25 @@ jobs:
   move-tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install `suiup`
+        run: |
+          set -euo pipefail
+          curl -sSfL https://raw.githubusercontent.com/MystenLabs/suiup/main/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Install Sui CLI
         run: |
           set -euo pipefail
-          curl -L https://github.com/MystenLabs/sui/releases/download/testnet-v1.67.1/sui-testnet-v1.67.1-ubuntu-x86_64.tgz -o /tmp/sui.tgz
-          tar -xzf /tmp/sui.tgz -C /tmp
-          SUI_DIR="$(find /tmp -maxdepth 1 -type d -name 'sui-testnet-v1.67.1-ubuntu-x86_64' | head -1)"
-          if [ -z "$SUI_DIR" ]; then
-            echo "Unable to find extracted Sui CLI directory" >&2
-            exit 1
-          fi
-          echo "$SUI_DIR" >> "$GITHUB_PATH"
-          "$SUI_DIR/sui" --version
+          export PATH="$HOME/.local/bin:$PATH"
+          suiup install sui@testnet-1.67.1 -y
+          sui --version
 
       - name: Run Move tests
         run: |
