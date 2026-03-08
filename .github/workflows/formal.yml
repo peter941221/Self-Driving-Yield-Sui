@@ -1,0 +1,72 @@
+name: formal
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'formal/**'
+      - 'sui/sources/**'
+      - 'scripts/formal_verify_wsl.sh'
+      - 'scripts/install_sui_prover_wsl.sh'
+      - '.github/workflows/formal.yml'
+  pull_request:
+    paths:
+      - 'formal/**'
+      - 'sui/sources/**'
+      - 'scripts/formal_verify_wsl.sh'
+      - 'scripts/install_sui_prover_wsl.sh'
+      - '.github/workflows/formal.yml'
+
+jobs:
+  move-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Sui CLI
+        run: |
+          set -euo pipefail
+          curl -L https://github.com/MystenLabs/sui/releases/download/testnet-v1.67.1/sui-testnet-v1.67.1-ubuntu-x86_64.tgz -o /tmp/sui.tgz
+          tar -xzf /tmp/sui.tgz -C /tmp
+          SUI_DIR="$(find /tmp -maxdepth 1 -type d -name 'sui-testnet-v1.67.1-ubuntu-x86_64' | head -1)"
+          if [ -z "$SUI_DIR" ]; then
+            echo "Unable to find extracted Sui CLI directory" >&2
+            exit 1
+          fi
+          echo "$SUI_DIR" >> "$GITHUB_PATH"
+          "$SUI_DIR/sui" --version
+
+      - name: Run Move tests
+        run: |
+          set -euo pipefail
+          cd sui
+          sui move test
+
+  formal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.move
+          key: formal-cargo-${{ runner.os }}-${{ hashFiles('scripts/install_sui_prover_wsl.sh', 'scripts/formal_verify_wsl.sh', 'formal/Move.toml') }}
+
+      - name: Install formal toolchain
+        run: bash scripts/install_sui_prover_wsl.sh
+
+      - name: Run formal suite
+        run: bash scripts/formal_verify_wsl.sh -v
