@@ -304,6 +304,11 @@ The current CI workflow now runs three layers:
 - `formal`: runs `bash scripts/formal_verify_wsl.sh -v` equivalent on Linux CI
 - `chaos`: runs `python scripts/chaos_phase1.py`
 
+Cross-platform note:
+
+- Linux CI is sensitive to Windows-style path separators inside checked-in Move lockfiles
+- the repo now normalizes `sui/Move.lock` / `formal/Move.lock` paths in CI before running tests, which prevents the recurring `packages\\...` dependency-resolution failure on Ubuntu runners
+
 ### Windows short-path helper
 
 If your Windows path is too long for Move dependencies:

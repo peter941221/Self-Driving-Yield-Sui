@@ -5,7 +5,7 @@
 version = 4
 
 [pinned.testnet.CetusClmm]
-source = { git = "https://github.com/CetusProtocol/cetus-contracts.git", subdir = 'packages\cetus_clmm', rev = "0a90d59cef9fa86485d81b11cb07a651d76ed360" }
+source = { git = "https://github.com/CetusProtocol/cetus-contracts.git", subdir = "packages/cetus_clmm", rev = "0a90d59cef9fa86485d81b11cb07a651d76ed360" }
 use_environment = "testnet"
 manifest_digest = "E2D3B3E35E990074445ABBE94DA38DB3637EBE2312ED7B591A7113E1B462E0AA"
 deps = { IntegerMate = "IntegerMate", MoveSTL = "MoveSTL", std = "MoveStdlib", sui = "Sui" }
@@ -23,7 +23,7 @@ manifest_digest = "5745706258F61D6CE210904B3E6AE87A73CE9D31A6F93BE4718C442529332
 deps = { std = "MoveStdlib", sui = "Sui" }
 
 [pinned.testnet.MoveStdlib]
-source = { git = "https://github.com/MystenLabs/sui.git", subdir = 'crates\sui-framework\packages\move-stdlib', rev = "b38bca86f0323b3fe8b6b7f4ca0cd7ae7faebe4b" }
+source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "b38bca86f0323b3fe8b6b7f4ca0cd7ae7faebe4b" }
 use_environment = "testnet"
 manifest_digest = "C4FE4C91DE74CBF223B2E380AE40F592177D21870DC2D7EB6227D2D694E05363"
 deps = {}
@@ -35,7 +35,7 @@ manifest_digest = "AF3F7576AF6CD6309DD1B6D94FEBE95372149821E4651A82EF22EEE3AD461
 deps = { CetusClmm = "CetusClmm", std = "MoveStdlib", sui = "Sui" }
 
 [pinned.testnet.Sui]
-source = { git = "https://github.com/MystenLabs/sui.git", subdir = 'crates\sui-framework\packages\sui-framework', rev = "b38bca86f0323b3fe8b6b7f4ca0cd7ae7faebe4b" }
+source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "b38bca86f0323b3fe8b6b7f4ca0cd7ae7faebe4b" }
 use_environment = "testnet"
 manifest_digest = "7AFB66695545775FBFBB2D3078ADFD084244D5002392E837FDE21D9EA1C6D01C"
 deps = { MoveStdlib = "MoveStdlib" }
