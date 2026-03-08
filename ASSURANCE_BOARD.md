@@ -14,7 +14,7 @@ This file is the tracked, public-facing summary of what the repo currently prove
 
 - Package: `formal/`
 - Runner: `bash scripts/formal_verify_wsl.sh -v`
-- Current green scope: `46` proof entrypoints
+- Current green scope: `51` proof entrypoints
 - Highlights:
   - regime classification
   - first-snapshot transition
@@ -41,15 +41,25 @@ See also:
   - Cetus real-object `open -> close` proof on testnet
   - vault-held Cetus Position ownership across transactions on testnet
   - queue-pressure `cycle_live` proof that closes the live Position before `CycleEvent`
+  - same-network testnet operator loop proving planner-driven `cycle()` + real vault-held Cetus live position + real native staking yield sync on one network
+  - real pressure run proving queued withdrawal pressure can close a live Cetus position and continue cycling without failed tx evidence in the recorded run
 - Latest `cycle_live` evidence:
   - manifest: `out/deployments/testnet_cetus_cycle_live.json`
   - report: `out/reports/cetus_cycle_live_probe_20260308T075620Z.json`
   - tx digest: `3tjoD7afc5Qd1xiAmsF4kVa25Kj522JTZkkMG51fqSL3`
   - key result: `CetusPositionClosedEvent` index `2` landed before `CycleEvent` index `3`
+- Latest same-network autonomy evidence:
+  - manifest: `out/deployments/testnet_same_network_autonomy_c.json`
+  - report: `out/reports/testnet_same_network_autonomy_20260308T125512Z.json`
+  - key result: one testnet operator loop synced an existing real `StakedSui` receipt into vault live-yield bookkeeping, then a planner-driven `cycle()` emitted `StrategyPlannedEvent` with both `live_cetus_position_present = true` and `live_yield_position_present = true`
+- Latest pressure evidence:
+  - manifest: `out/deployments/testnet_same_network_autonomy_c.json`
+  - report: `out/reports/testnet_pressure_run_20260308T130434Z.json`
+  - key result: queued withdrawal tx `Hc8PJBj84gzh4T3Bq9wVHPJQ6WVvtHxsGnMbzCnydNHC` followed by live pressure tx `HkYqBFYVa5WfCn41U2jMJLMZDRhppnSf4Fv8d86Q1JA4`, where `CetusPositionClosedEvent` landed before `CycleEvent` and the run continued with four more green `cycle()` calls
 - Remaining P5 gaps:
-  - `vault::cycle()` is still not a full live multi-adapter strategy engine
-  - live adapter depth is still strongest on Cetus; other live legs are shallower
-  - Scallop is real yield evidence, but not yet same-network vault execution
+  - `vault::cycle()` now has a unified planner and same-network operator-loop evidence, but direct same-tx native execution of every live leg still depends on protocol-specific runtime entrypoints
+  - live adapter depth is still strongest on Cetus + native staking bookkeeping; external lending/perps remain shallower
+  - Scallop is still real yield evidence, but not same-network vault execution
   - Aftermath perps remains blocked on testnet and is not a sign-off-quality live leg yet
 
 ## Chaos Layer

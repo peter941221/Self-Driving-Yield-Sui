@@ -43,6 +43,23 @@ fun max_deployable_never_exceeds_total_assets_spec(total_assets: u64, reserve_ta
 }
 
 #[spec(prove)]
+fun lp_capacity_never_exceeds_max_deployable_spec(max_deployable: u64, hedge_margin_bps: u64): u64 {
+    requires(hedge_margin_bps <= 10000);
+    let result = types::lp_capacity_usdc(max_deployable, true, hedge_margin_bps);
+    ensures(result <= max_deployable);
+    result
+}
+
+#[spec(prove)]
+fun target_lp_never_exceeds_max_deployable_spec(total_assets: u64, lp_bps: u64, max_deployable: u64, hedge_margin_bps: u64): u64 {
+    requires(lp_bps <= 10000);
+    requires(hedge_margin_bps <= 10000);
+    let result = types::target_lp_usdc(true, total_assets, lp_bps, max_deployable, true, hedge_margin_bps);
+    ensures(result <= max_deployable);
+    result
+}
+
+#[spec(prove)]
 fun target_hedge_zero_when_unavailable_spec(lp_target: u64, hedge_margin_bps: u64): u64 {
     let result = types::target_hedge_margin_usdc(false, lp_target, hedge_margin_bps);
     ensures(result == 0);
@@ -53,6 +70,16 @@ fun target_hedge_zero_when_unavailable_spec(lp_target: u64, hedge_margin_bps: u6
 fun target_yield_zero_when_unavailable_spec(total_assets: u64, yield_bps: u64, max_deployable: u64, lp_target: u64, hedge_target: u64): u64 {
     let result = types::target_yield_usdc(false, total_assets, yield_bps, max_deployable, lp_target, hedge_target);
     ensures(result == 0);
+    result
+}
+
+#[spec(prove)]
+fun target_yield_never_exceeds_max_deployable_spec(total_assets: u64, yield_bps: u64, max_deployable: u64, lp_target: u64, hedge_target: u64): u64 {
+    requires(yield_bps <= 10000);
+    requires(lp_target <= max_deployable);
+    requires(hedge_target <= max_deployable);
+    let result = types::target_yield_usdc(true, total_assets, yield_bps, max_deployable, lp_target, hedge_target);
+    ensures(result <= max_deployable);
     result
 }
 
@@ -98,6 +125,14 @@ fun should_close_live_position_only_unwind_spec(treasury_usdc: u64, ready_usdc: 
 fun should_close_live_position_without_position_is_false_spec(only_unwind: bool, treasury_usdc: u64, ready_usdc: u64, pending_usdc: u64): bool {
     let result = types::should_close_live_position(false, only_unwind, treasury_usdc, ready_usdc, pending_usdc);
     ensures(!result);
+    result
+}
+
+#[spec(prove)]
+fun should_close_live_position_when_queue_exceeds_treasury_spec(treasury_usdc: u64): bool {
+    requires(treasury_usdc < 18446744073709551615u64);
+    let result = types::should_close_live_position(true, false, treasury_usdc, treasury_usdc + 1, 0);
+    ensures(result);
     result
 }
 

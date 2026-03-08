@@ -47,18 +47,31 @@ def deposit_and_get_share_coin(manifest, deposit_amount, clock_id):
     vault_id = manifest["vault_id"]
     base_type = manifest["base_type"]
     share_type = f"{package_id}::sdye::SDYE"
-    selector_type = CANONICAL_SUI_TYPE if base_type == "0x2::sui::SUI" else base_type
-    base_coin_id, _ = suite.select_coin_object(selector_type, deposit_amount)
-    digest, _ = suite.call_json_with_digest([
-        "sui", "client", "call",
-        "--package", package_id,
-        "--module", "entrypoints",
-        "--function", "deposit_entry",
-        "--type-args", base_type,
-        "--args", vault_id, base_coin_id, clock_id,
-        "--gas-budget", "120000000",
-        "--json",
-    ])
+    if base_type == "0x2::sui::SUI":
+        gas_payload = suite.run_json(["sui", "client", "gas", "--json"])
+        best_gas_coin = max(gas_payload, key=lambda item: int(item.get("mistBalance", 0)))["gasCoinId"]
+        digest, _ = suite.call_json_with_digest([
+            "sui", "client", "ptb",
+            "--gas-coin", f"@{best_gas_coin}",
+            "--split-coins", "gas", f"[{deposit_amount}]",
+            "--assign", "BASE",
+            "--move-call", f"{package_id}::entrypoints::deposit_entry", f"<{base_type}>", f"@{vault_id}", "BASE.0", f"@{clock_id}",
+            "--gas-budget", "120000000",
+            "--json",
+        ])
+    else:
+        selector_type = CANONICAL_SUI_TYPE if base_type == "0x2::sui::SUI" else base_type
+        base_coin_id, _ = suite.select_coin_object(selector_type, deposit_amount)
+        digest, _ = suite.call_json_with_digest([
+            "sui", "client", "call",
+            "--package", package_id,
+            "--module", "entrypoints",
+            "--function", "deposit_entry",
+            "--type-args", base_type,
+            "--args", vault_id, base_coin_id, clock_id,
+            "--gas-budget", "120000000",
+            "--json",
+        ])
     tx = suite.tx_block(digest)
     share_coin_id = find_created_coin_id(tx, share_type)
     return {"digest": digest, "share_coin_id": share_coin_id, "share_type": share_type}

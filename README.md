@@ -279,7 +279,7 @@ bash scripts/formal_verify_wsl.sh -v
 Current formal scope:
 
 - `formal/` proves the core helper / accounting layer
-- current green areas now span `46` proof entrypoints, including `oracle::compute_regime` + first-snapshot transition, `queue::claim_ready` + empty-queue `process_queue` slice, queue creation/enqueue accounting, reserve / queue-pressure math identities, adjusted-buffer cap boundaries, planner action / live-close intent helpers, share math, first-deposit accounting, cycle helper proofs (`apply_cycle_regime` / `compute_cycle_bounty`), one empty-state `vault::cycle()` wrapper proof, risk-mode restore/reset, zero-edge bounty proofs, and live-yield bookkeeping helpers
+- current green areas now span `51` proof entrypoints, including `oracle::compute_regime` + first-snapshot transition, `queue::claim_ready` + empty-queue `process_queue` slice, queue creation/enqueue accounting, reserve / queue-pressure math identities, adjusted-buffer cap boundaries, planner action / live-close intent helpers, planner deployable-capacity bounds, share math, first-deposit accounting, cycle helper proofs (`apply_cycle_regime` / `compute_cycle_bounty`), one empty-state `vault::cycle()` wrapper proof, risk-mode restore/reset, zero-edge bounty proofs, and live-yield bookkeeping helpers
 - `cycle()` and live shared-object paths are still intentionally outside the current formal boundary
 
 ### Chaos Phase 1 (local)
