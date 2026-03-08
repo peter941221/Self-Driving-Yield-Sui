@@ -246,6 +246,7 @@ What is still intentionally out of scope for this repo snapshot:
 
 Quick external-reader docs:
 
+- `ASSURANCE_BOARD.md`
 - `docs/INVESTOR_STATUS_BRIEF.md`
 - `docs/EVIDENCE_BOARD.md`
 - `docs/RUNBOOK.md`
@@ -290,6 +291,7 @@ python scripts/chaos_phase1.py
 
 Current matrix:
 
+- `ASSURANCE_BOARD.md`
 - `CHAOS_MATRIX.md`
 
 Current chaos scope:
