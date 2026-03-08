@@ -54,6 +54,9 @@ jobs:
       - name: Run Move tests
         run: |
           set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          command -v sui
+          sui --version
           cd sui
           sui move test
 
