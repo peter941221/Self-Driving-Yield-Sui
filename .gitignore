@@ -5,6 +5,7 @@
 .env
 .env.*
 *.log
+sui-prover.log.*
 model-calls.jsonl
 
 # Node (PoCs / tooling)
@@ -21,6 +22,8 @@ poc/**/dist/
 # Local memory docs (do not push)
 /AGENTS.md
 /MEMORY.md
+/完善清单.TXT
+/形式化与混沌工程.TXT
 
 # Private technical docs (do not push)
 /docs/
@@ -38,3 +41,5 @@ poc/**/dist/
 
 # Local MOVE_HOME cache
 /m/
+
+/formal/output/

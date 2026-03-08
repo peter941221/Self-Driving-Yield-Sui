@@ -235,10 +235,11 @@ What is included now:
 - `scripts/scallop_core_bridge.py` now provides the operator bridge for syncing a successful Scallop report back into Vault bookkeeping, while explicitly blocking unsafe cross-network syncs
 - oracle volatility is now based on return-style EWMA instead of simple TWAP deviation
 - reserve math now uses an explicit `reserve_target = max(queue, ratio, floor)` style model, and `monitor_sui.py` now prints reserve-derived fields (`q_score`, reserve target, deployable)
+- a dedicated WSL formal suite now exists under `formal/`, and `bash scripts/formal_verify_wsl.sh -v` currently proves the core helper layer with `sui-prover`
 
 What is still intentionally out of scope for this repo snapshot:
 
-- prover-based formal verification (`sui move prove` not available locally)
+- full formalization of `cycle()` / live shared-object paths; the current formal suite focuses on the core helper / accounting layer under `formal/`
 - one-click mainnet publish from CI without operator wallet / gas
 - production-grade hosted dashboards / alert routing beyond the local scripts
 - fully automated `cycle()`-managed live LP add / remove / close state machine
@@ -263,6 +264,21 @@ sui move test --coverage
 sui move coverage summary
 sui move test --statistics
 ```
+
+### Formal verification (WSL)
+
+Run from the repo root inside WSL:
+
+```bash
+bash scripts/install_sui_prover_wsl.sh
+bash scripts/formal_verify_wsl.sh -v
+```
+
+Current formal scope:
+
+- `formal/` proves the core helper / accounting layer
+- current green areas include `oracle::compute_regime` + first-snapshot transition, `queue::claim_ready` + empty-queue `process_queue` slice, queue creation/enqueue accounting, reserve / queue-pressure math identities, share math, first-deposit accounting, cycle helper proofs (`apply_cycle_regime` / `compute_cycle_bounty`), risk-mode restore/reset, and live-yield bookkeeping helpers
+- `cycle()` and live shared-object paths are still intentionally outside the current formal boundary
 
 ### Windows short-path helper
 

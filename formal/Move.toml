@@ -1,0 +1,10 @@
+[package]
+name = "FormalProofs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+SelfDrivingYield = { local = "../sui" }
+
+[addresses]
+formal = "0x0"

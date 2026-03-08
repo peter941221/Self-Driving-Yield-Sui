@@ -74,6 +74,7 @@ public fun new_state(): QueueState {
 }
 
 public fun len(q: &QueueState): u64 { vector::length(&q.requests) }
+public fun next_request_id(q: &QueueState): u64 { q.next_request_id }
 public fun total_pending_shares(q: &QueueState): u64 { q.total_pending_shares }
 public fun total_pending_usdc(q: &QueueState): u64 { q.total_pending_usdc }
 public fun total_ready_usdc(q: &QueueState): u64 { q.total_ready_usdc }
@@ -139,6 +140,10 @@ public fun process_queue(q: &mut QueueState, treasury_usdc: &mut u64): u64 {
     let mut i = 0;
     let mut moved = 0;
     let n = vector::length(&q.requests);
+
+    if (n == 0 || q.total_pending_shares == 0 || q.total_pending_usdc == 0) {
+        return 0
+    };
 
     while (i < n) {
         let req_ref = vector::borrow_mut(&mut q.requests, i);

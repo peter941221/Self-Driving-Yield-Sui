@@ -79,6 +79,29 @@ public fun set_risk_mode(s: &mut VaultState, m: types::RiskMode) {
     }
 }
 
+public fun apply_cycle_regime(s: &mut VaultState, regime: &types::Regime) {
+    if (types::is_regime_storm(regime)) {
+        s.risk_mode = types::risk_only_unwind();
+        s.safe_cycles_since_storm = 0;
+    } else {
+        if (types::is_only_unwind(&s.risk_mode)) {
+            s.safe_cycles_since_storm = math::safe_add(s.safe_cycles_since_storm, 1);
+            if (s.safe_cycles_since_storm >= SAFE_CYCLES_TO_RESTORE) {
+                s.risk_mode = types::risk_normal();
+                s.safe_cycles_since_storm = SAFE_CYCLES_TO_RESTORE;
+            }
+        } else {
+            s.risk_mode = types::risk_normal();
+            s.safe_cycles_since_storm = SAFE_CYCLES_TO_RESTORE;
+        }
+    };
+}
+
+public fun compute_cycle_bounty(remaining: u64, total_assets: u64): u64 {
+    let max_bounty = math::mul_div(total_assets, MAX_BOUNTY_BPS, 10000);
+    if (remaining < max_bounty) { remaining } else { max_bounty }
+}
+
 public(package) fun set_treasury_usdc_for_testing(s: &mut VaultState, v: u64) {
     s.treasury_usdc = v;
 }
@@ -121,21 +144,7 @@ public fun cycle(
     let regime = oracle::current_regime(o);
 
     // Phase 4: minimal risk control (storm => OnlyUnwind, restore only after N safe cycles).
-    if (types::is_regime_storm(&regime)) {
-        s.risk_mode = types::risk_only_unwind();
-        s.safe_cycles_since_storm = 0;
-    } else {
-        if (types::is_only_unwind(&s.risk_mode)) {
-            s.safe_cycles_since_storm = math::safe_add(s.safe_cycles_since_storm, 1);
-            if (s.safe_cycles_since_storm >= SAFE_CYCLES_TO_RESTORE) {
-                s.risk_mode = types::risk_normal();
-                s.safe_cycles_since_storm = SAFE_CYCLES_TO_RESTORE;
-            }
-        } else {
-            s.risk_mode = types::risk_normal();
-            s.safe_cycles_since_storm = SAFE_CYCLES_TO_RESTORE;
-        }
-    };
+    apply_cycle_regime(s, &regime);
 
     // Phase 6: process withdrawal queue, reserving ready balances.
     let reserved_ready = queue::total_ready_usdc(q);
@@ -144,8 +153,7 @@ public fun cycle(
     let moved = queue::process_queue(q, &mut remaining);
 
     // Phase 7: bounded bounty (<= max_bounty_bps * total_assets), paid from remaining.
-    let max_bounty = math::mul_div(s.total_assets, MAX_BOUNTY_BPS, 10000);
-    let bounty = if (remaining < max_bounty) { remaining } else { max_bounty };
+    let bounty = compute_cycle_bounty(remaining, s.total_assets);
     if (bounty > 0) {
         s.treasury_usdc = math::safe_sub(s.treasury_usdc, bounty);
         s.total_assets = math::safe_sub(s.total_assets, bounty);

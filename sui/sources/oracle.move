@@ -46,6 +46,7 @@ public fun new(): OracleState {
 }
 
 public fun snapshot_count(s: &OracleState): u64 { s.snapshot_count }
+public fun snapshots_len(s: &OracleState): u64 { vector::length(&s.snapshots) }
 public fun last_snapshot_ts_ms(s: &OracleState): u64 { s.last_snapshot_ts_ms }
 public fun current_twap(s: &OracleState): u64 { s.current_twap }
 public fun current_volatility_bps(s: &OracleState): u64 { s.current_volatility_bps }
@@ -75,6 +76,17 @@ public fun record_snapshot_with_ts(
 
     if (s.last_snapshot_ts_ms != 0 && ts_ms < s.last_snapshot_ts_ms + min_interval_ms) {
         return false
+    };
+
+    if (s.snapshot_count == 0) {
+        vector::push_back(&mut s.snapshots, PriceSnapshot { ts_ms, price });
+        s.snapshot_count = 1;
+        s.last_snapshot_ts_ms = ts_ms;
+        s.current_twap = price;
+        s.ewma_variance_bps2 = 0;
+        s.current_volatility_bps = 0;
+        s.current_regime = compute_regime(1, 0);
+        return true
     };
 
     if (s.snapshot_count > 0) {
