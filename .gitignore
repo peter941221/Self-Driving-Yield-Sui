@@ -22,6 +22,7 @@ poc/**/dist/
 # Local memory docs (do not push)
 /AGENTS.md
 /MEMORY.md
+/RUNBOOK.md
 /完善清单.TXT
 /形式化与混沌工程.TXT
 
