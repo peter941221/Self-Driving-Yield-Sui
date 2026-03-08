@@ -6,7 +6,6 @@ import shutil
 import socketserver
 import subprocess
 import sys
-import tempfile
 import textwrap
 import threading
 from datetime import datetime, timezone
@@ -21,10 +20,28 @@ def write_json(path: Path, payload):
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
-def make_fake_sui_bin(bin_dir: Path, active_env: str = "testnet", active_address: str = "0xchaos", gas_payload=None):
+def tail(text: str, limit: int = 4000):
+    return (text or "")[-limit:]
+
+
+def fake_sui_executable(bin_dir: Path) -> str:
+    return str((bin_dir / "sui").resolve()) if os.name != "nt" else str((bin_dir / "sui.bat").resolve())
+
+
+def make_fake_sui_bin(
+    bin_dir: Path,
+    *,
+    active_env: str = "testnet",
+    active_address: str = "0xchaos",
+    gas_payload=None,
+    call_payloads=None,
+):
     bin_dir.mkdir(parents=True, exist_ok=True)
     if gas_payload is None:
         gas_payload = {"data": []}
+    if call_payloads is None:
+        call_payloads = []
+
     driver = bin_dir / "sui.py"
     driver.write_text(
         textwrap.dedent(
@@ -35,6 +52,7 @@ def make_fake_sui_bin(bin_dir: Path, active_env: str = "testnet", active_address
             active_env = {active_env!r}
             active_address = {active_address!r}
             gas_payload = {json.dumps(gas_payload)}
+            call_payloads = {json.dumps(call_payloads)}
 
             args = sys.argv[1:]
             if args == ["client", "active-env"]:
@@ -48,7 +66,13 @@ def make_fake_sui_bin(bin_dir: Path, active_env: str = "testnet", active_address
                 raise SystemExit(0)
             if args == ["client", "envs"]:
                 print("alias │ url │ active")
-                print("testnet │ http://127.0.0.1:9999 │ *")
+                print(f"{{active_env}} │ http://127.0.0.1:9999 │ *")
+                raise SystemExit(0)
+            if len(args) >= 2 and args[0] == "client" and args[1] == "call":
+                if call_payloads:
+                    print(json.dumps(call_payloads.pop(0)))
+                    raise SystemExit(0)
+                print(json.dumps({{"digest": "FAKE_CALL_DIGEST"}}))
                 raise SystemExit(0)
             print("unexpected fake sui invocation:", " ".join(args), file=sys.stderr)
             raise SystemExit(91)
@@ -57,6 +81,11 @@ def make_fake_sui_bin(bin_dir: Path, active_env: str = "testnet", active_address
         + "\n",
         encoding="utf-8",
     )
+
+    unix_shim = bin_dir / "sui"
+    unix_shim.write_text('#!/usr/bin/env bash\npython3 "$(dirname "$0")/sui.py" "$@"\n', encoding="utf-8")
+    os.chmod(unix_shim, 0o755)
+
     for shim_name in ("sui.bat", "sui.cmd"):
         shim = bin_dir / shim_name
         shim.write_text("@echo off\r\npython \"%~dp0sui.py\" %*\r\n", encoding="utf-8")
@@ -64,15 +93,24 @@ def make_fake_sui_bin(bin_dir: Path, active_env: str = "testnet", active_address
 
 class RpcHandler(BaseHTTPRequestHandler):
     responses = []
+    raw_bodies = []
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0"))
-        body = self.rfile.read(length).decode("utf-8")
-        payload = json.loads(body)
+        _ = self.rfile.read(length)
+        if RpcHandler.raw_bodies:
+            raw = RpcHandler.raw_bodies.pop(0).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+            return
+
         if RpcHandler.responses:
             response = RpcHandler.responses.pop(0)
         else:
-            response = {"jsonrpc": "2.0", "id": payload.get("id", 1), "result": {"data": []}}
+            response = {"jsonrpc": "2.0", "id": 1, "result": {"data": []}}
         encoded = json.dumps(response).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -84,8 +122,9 @@ class RpcHandler(BaseHTTPRequestHandler):
         return
 
 
-def start_rpc_server(responses):
-    RpcHandler.responses = list(responses)
+def start_rpc_server(responses=None, raw_bodies=None):
+    RpcHandler.responses = list(responses or [])
+    RpcHandler.raw_bodies = list(raw_bodies or [])
     server = socketserver.TCPServer(("127.0.0.1", 0), RpcHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -132,13 +171,13 @@ def load_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def experiment_bridge(name, tmp_dir: Path, report_payload, fake_env="testnet", expect_status=""):
+def run_bridge_experiment(name, tmp_dir: Path, report_payload, *, fake_env="testnet", call_payloads=None, expect_status=""):
     fake_bin = tmp_dir / name / "fakebin"
-    make_fake_sui_bin(fake_bin, active_env=fake_env)
+    make_fake_sui_bin(fake_bin, active_env=fake_env, call_payloads=call_payloads)
     env = os.environ.copy()
     env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
     env["PATHEXT"] = ".BAT;.CMD;.EXE;.COM"
-    env["SUI_BIN"] = str(fake_bin / "sui.bat")
+    env["SUI_BIN"] = fake_sui_executable(fake_bin)
     manifest_path = tmp_dir / name / "manifest.json"
     report_path = tmp_dir / name / "report.json"
     out_path = tmp_dir / name / "bridge_report.json"
@@ -162,10 +201,21 @@ def experiment_bridge(name, tmp_dir: Path, report_payload, fake_env="testnet", e
         "actual_status": actual,
         "pass": actual == expect_status,
         "returncode": result.returncode,
-        "stdout": result.stdout[-4000:],
-        "stderr": result.stderr[-4000:],
+        "stdout": tail(result.stdout),
+        "stderr": tail(result.stderr),
         "artifact": str(out_path),
     }
+
+
+def experiment_bridge_ok(tmp_dir: Path):
+    payload = {"digest": "FAKE_SYNC_DIGEST"}
+    return run_bridge_experiment(
+        "bridge_ok_happy_path",
+        tmp_dir,
+        ok_scallop_report(env="testnet", before=0, after_deposit=100, after_withdraw=20),
+        call_payloads=[payload, payload, payload],
+        expect_status="ok",
+    )
 
 
 def experiment_smoke_blocked(tmp_dir: Path):
@@ -175,7 +225,7 @@ def experiment_smoke_blocked(tmp_dir: Path):
     env = os.environ.copy()
     env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
     env["PATHEXT"] = ".BAT;.CMD;.EXE;.COM"
-    env["SUI_BIN"] = str(fake_bin / "sui.bat")
+    env["SUI_BIN"] = fake_sui_executable(fake_bin)
     out_path = tmp_dir / name / "smoke_report.json"
     result = run_cmd([
         sys.executable,
@@ -195,18 +245,14 @@ def experiment_smoke_blocked(tmp_dir: Path):
         "actual_status": actual,
         "pass": actual == "blocked_no_testnet_gas",
         "returncode": result.returncode,
-        "stdout": result.stdout[-4000:],
-        "stderr": result.stderr[-4000:],
+        "stdout": tail(result.stdout),
+        "stderr": tail(result.stderr),
         "artifact": str(out_path),
     }
 
 
-def experiment_monitor_no_events(tmp_dir: Path):
-    name = "monitor_no_events"
-    server, rpc_url = start_rpc_server([
-        {"jsonrpc": "2.0", "id": 1, "result": {"data": []}},
-        {"jsonrpc": "2.0", "id": 1, "result": {"data": []}},
-    ])
+def run_monitor_experiment(name, tmp_dir: Path, *, responses=None, raw_bodies=None, max_minutes_without_cycle="30", expect_status="", validator=None):
+    server, rpc_url = start_rpc_server(responses=responses, raw_bodies=raw_bodies)
     try:
         manifest_path = tmp_dir / name / "manifest.json"
         write_json(manifest_path, base_manifest("testnet"))
@@ -219,18 +265,20 @@ def experiment_monitor_no_events(tmp_dir: Path):
             rpc_url,
             "--limit",
             "5",
+            "--max-minutes-without-cycle",
+            str(max_minutes_without_cycle),
         ])
         combined = (result.stdout or "") + "\n" + (result.stderr or "")
-        passed = result.returncode != 0 and "ALERT: no events found" in combined and "OK: no alert thresholds triggered" not in combined
+        passed = validator(result, combined) if validator else False
         return {
             "name": name,
             "command": "monitor_sui.py",
-            "expected_status": "no_events_alert",
+            "expected_status": expect_status,
             "actual_status": "pass" if passed else "fail",
             "pass": passed,
             "returncode": result.returncode,
-            "stdout": result.stdout[-4000:],
-            "stderr": result.stderr[-4000:],
+            "stdout": tail(result.stdout),
+            "stderr": tail(result.stderr),
             "artifact": str(manifest_path),
         }
     finally:
@@ -238,8 +286,40 @@ def experiment_monitor_no_events(tmp_dir: Path):
         server.server_close()
 
 
+def experiment_monitor_no_events(tmp_dir: Path):
+    return run_monitor_experiment(
+        "monitor_no_events",
+        tmp_dir,
+        responses=[
+            {"jsonrpc": "2.0", "id": 1, "result": {"data": []}},
+            {"jsonrpc": "2.0", "id": 1, "result": {"data": []}},
+        ],
+        expect_status="no_events_alert",
+        validator=lambda result, combined: result.returncode != 0 and "ALERT: no events found" in combined and "OK: no alert thresholds triggered" not in combined,
+    )
+
+
+def experiment_monitor_rpc_error(tmp_dir: Path):
+    return run_monitor_experiment(
+        "monitor_rpc_error",
+        tmp_dir,
+        responses=[{"jsonrpc": "2.0", "id": 1, "error": {"code": -32000, "message": "chaos rpc error"}}],
+        expect_status="rpc_error",
+        validator=lambda result, combined: result.returncode != 0 and "RPC error:" in combined and "OK: no alert thresholds triggered" not in combined,
+    )
+
+
+def experiment_monitor_malformed_json(tmp_dir: Path):
+    return run_monitor_experiment(
+        "monitor_malformed_json",
+        tmp_dir,
+        raw_bodies=["not-json"],
+        expect_status="malformed_json",
+        validator=lambda result, combined: result.returncode != 0 and "JSONDecodeError" in combined and "OK: no alert thresholds triggered" not in combined,
+    )
+
+
 def experiment_monitor_pressure(tmp_dir: Path):
-    name = "monitor_only_unwind_pressure"
     cycle_event = {
         "type": "0xpackage::entrypoints::CycleEvent",
         "timestampMs": str(int(datetime.now(timezone.utc).timestamp() * 1000)),
@@ -258,44 +338,80 @@ def experiment_monitor_pressure(tmp_dir: Path):
             "total_assets": 1000,
         },
     }
-    server, rpc_url = start_rpc_server([
-        {"jsonrpc": "2.0", "id": 1, "result": {"data": [cycle_event]}},
-        {"jsonrpc": "2.0", "id": 1, "result": {"data": []}},
-    ])
-    try:
-        manifest_path = tmp_dir / name / "manifest.json"
-        write_json(manifest_path, base_manifest("testnet"))
-        result = run_cmd([
-            sys.executable,
-            "scripts/monitor_sui.py",
-            "--manifest",
-            str(manifest_path),
-            "--rpc-url",
-            rpc_url,
-            "--limit",
-            "5",
-        ])
-        combined = (result.stdout or "") + "\n" + (result.stderr or "")
-        passed = (
-            result.returncode == 0
-            and "HIGH: vault is in OnlyUnwind mode" in combined
-            and ("CRIT: ready withdrawals exceed treasury liquidity" in combined or "WARN: treasury sits below derived reserve target" in combined)
-            and "OK: no alert thresholds triggered" not in combined
-        )
-        return {
-            "name": name,
-            "command": "monitor_sui.py",
-            "expected_status": "alerted_pressure",
-            "actual_status": "pass" if passed else "fail",
-            "pass": passed,
-            "returncode": result.returncode,
-            "stdout": result.stdout[-4000:],
-            "stderr": result.stderr[-4000:],
-            "artifact": str(manifest_path),
-        }
-    finally:
-        server.shutdown()
-        server.server_close()
+    return run_monitor_experiment(
+        "monitor_only_unwind_pressure",
+        tmp_dir,
+        responses=[
+            {"jsonrpc": "2.0", "id": 1, "result": {"data": [cycle_event]}},
+            {"jsonrpc": "2.0", "id": 1, "result": {"data": []}},
+        ],
+        expect_status="alerted_pressure",
+        validator=lambda result, combined: result.returncode == 0 and "HIGH: vault is in OnlyUnwind mode" in combined and "CRIT: ready withdrawals exceed treasury liquidity" in combined and "OK: no alert thresholds triggered" not in combined,
+    )
+
+
+def experiment_monitor_stale_cycle(tmp_dir: Path):
+    old_ts_ms = int((datetime.now(timezone.utc).timestamp() - 7200) * 1000)
+    cycle_event = {
+        "type": "0xpackage::entrypoints::CycleEvent",
+        "timestampMs": str(old_ts_ms),
+        "parsedJson": {
+            "spot_price": 100000,
+            "moved_usdc": 0,
+            "bounty_usdc": 0,
+            "regime_code": 1,
+            "only_unwind": False,
+            "safe_cycles_since_storm": 2,
+            "treasury_usdc": 500,
+            "deployed_usdc": 500,
+            "ready_usdc": 0,
+            "pending_usdc": 0,
+            "used_flash": False,
+            "total_assets": 1000,
+        },
+    }
+    return run_monitor_experiment(
+        "monitor_stale_cycle",
+        tmp_dir,
+        responses=[
+            {"jsonrpc": "2.0", "id": 1, "result": {"data": [cycle_event]}},
+            {"jsonrpc": "2.0", "id": 1, "result": {"data": []}},
+        ],
+        max_minutes_without_cycle="30",
+        expect_status="stale_cycle_alert",
+        validator=lambda result, combined: result.returncode == 0 and "HIGH: no cycle for" in combined and "OK: no alert thresholds triggered" not in combined,
+    )
+
+
+def experiment_monitor_used_flash(tmp_dir: Path):
+    cycle_event = {
+        "type": "0xpackage::entrypoints::CycleEvent",
+        "timestampMs": str(int(datetime.now(timezone.utc).timestamp() * 1000)),
+        "parsedJson": {
+            "spot_price": 100000,
+            "moved_usdc": 0,
+            "bounty_usdc": 0,
+            "regime_code": 1,
+            "only_unwind": False,
+            "safe_cycles_since_storm": 2,
+            "treasury_usdc": 700,
+            "deployed_usdc": 300,
+            "ready_usdc": 0,
+            "pending_usdc": 0,
+            "used_flash": True,
+            "total_assets": 1000,
+        },
+    }
+    return run_monitor_experiment(
+        "monitor_used_flash_info",
+        tmp_dir,
+        responses=[
+            {"jsonrpc": "2.0", "id": 1, "result": {"data": [cycle_event]}},
+            {"jsonrpc": "2.0", "id": 1, "result": {"data": []}},
+        ],
+        expect_status="used_flash_info",
+        validator=lambda result, combined: result.returncode == 0 and "INFO: latest rebalance used flash path" in combined,
+    )
 
 
 def main():
@@ -310,14 +426,21 @@ def main():
         shutil.rmtree(tmp_dir)
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
-    results = []
-    results.append(experiment_bridge("bridge_blocked_bad_report_status", tmp_dir, {**ok_scallop_report(), "status": "failed"}, expect_status="blocked_bad_report_status"))
-    results.append(experiment_bridge("bridge_blocked_cross_network", tmp_dir, ok_scallop_report(env="mainnet"), expect_status="blocked_cross_network"))
-    results.append(experiment_bridge("bridge_blocked_wrong_active_env", tmp_dir, ok_scallop_report(env="testnet"), fake_env="mainnet", expect_status="blocked_wrong_active_env"))
-    results.append(experiment_bridge("bridge_blocked_non_isolated_wallet_state", tmp_dir, ok_scallop_report(env="testnet", before=25, after_deposit=125, after_withdraw=0), expect_status="blocked_non_isolated_wallet_state"))
-    results.append(experiment_smoke_blocked(tmp_dir))
-    results.append(experiment_monitor_no_events(tmp_dir))
-    results.append(experiment_monitor_pressure(tmp_dir))
+    payload = {"digest": "FAKE_SYNC_DIGEST"}
+    results = [
+        run_bridge_experiment("bridge_blocked_bad_report_status", tmp_dir, {**ok_scallop_report(), "status": "failed"}, expect_status="blocked_bad_report_status"),
+        run_bridge_experiment("bridge_blocked_cross_network", tmp_dir, ok_scallop_report(env="mainnet"), expect_status="blocked_cross_network"),
+        run_bridge_experiment("bridge_blocked_wrong_active_env", tmp_dir, ok_scallop_report(env="testnet"), fake_env="mainnet", expect_status="blocked_wrong_active_env"),
+        run_bridge_experiment("bridge_blocked_non_isolated_wallet_state", tmp_dir, ok_scallop_report(env="testnet", before=25, after_deposit=125, after_withdraw=0), expect_status="blocked_non_isolated_wallet_state"),
+        experiment_bridge_ok(tmp_dir),
+        experiment_smoke_blocked(tmp_dir),
+        experiment_monitor_no_events(tmp_dir),
+        experiment_monitor_rpc_error(tmp_dir),
+        experiment_monitor_malformed_json(tmp_dir),
+        experiment_monitor_pressure(tmp_dir),
+        experiment_monitor_stale_cycle(tmp_dir),
+        experiment_monitor_used_flash(tmp_dir),
+    ]
 
     passed = sum(1 for item in results if item["pass"])
     summary = {

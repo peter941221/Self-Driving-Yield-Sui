@@ -291,8 +291,10 @@ python scripts/chaos_phase1.py
 Current chaos scope:
 
 - bridge blockers: `blocked_bad_report_status`, `blocked_cross_network`, `blocked_wrong_active_env`, `blocked_non_isolated_wallet_state`
+- bridge happy-path bookkeeping sync replay
 - smoke blocker: `blocked_no_testnet_gas`
-- monitor degraded paths: no-events alert and `OnlyUnwind` / reserve-pressure alert surfacing
+- monitor degraded paths: no-events alert, RPC error, malformed JSON, stale-cycle age alert, `OnlyUnwind` / reserve-pressure alert surfacing, and `used_flash` info surfacing
+- current local chaos suite: `12` deterministic experiments, all replayable without funded chain mutation
 
 ### Windows short-path helper
 
