@@ -36,7 +36,7 @@ See also:
 - Current strongest live evidence:
   - native lifecycle smoke on testnet
   - native staking proof on testnet
-  - Scallop supply / withdraw proof on testnet
+  - Scallop supply / withdraw proof on mainnet via split-network proof + bridge flow
   - Cetus real-object `open -> close` proof on testnet
   - vault-held Cetus Position ownership across transactions on testnet
   - queue-pressure `cycle_live` proof that closes the live Position before `CycleEvent`
@@ -48,6 +48,7 @@ See also:
 - Remaining P5 gaps:
   - `vault::cycle()` is still not a full live multi-adapter strategy engine
   - live adapter depth is still strongest on Cetus; other live legs are shallower
+  - Scallop is real yield evidence, but not yet same-network vault execution
   - Aftermath perps remains blocked on testnet and is not a sign-off-quality live leg yet
 
 ## Chaos Layer
