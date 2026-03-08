@@ -85,6 +85,42 @@ public struct CycleEvent has copy, drop, store {
     used_flash: bool,
 }
 
+public struct StrategyPlannedEvent has copy, drop, store {
+    lp_action: u64,
+    yield_action: u64,
+    hedge_action: u64,
+    target_lp_usdc: u64,
+    target_yield_usdc: u64,
+    target_hedge_usdc: u64,
+    current_lp_usdc: u64,
+    current_yield_usdc: u64,
+    current_hedge_usdc: u64,
+    reserve_target_usdc: u64,
+    queued_need_usdc: u64,
+    only_unwind: bool,
+    live_cetus_position_present: bool,
+    live_yield_position_present: bool,
+    live_hedge_position_present: bool,
+}
+
+public struct StrategyPlan has copy, drop, store {
+    lp_action: u64,
+    yield_action: u64,
+    hedge_action: u64,
+    target_lp_usdc: u64,
+    target_yield_usdc: u64,
+    target_hedge_usdc: u64,
+    current_lp_usdc: u64,
+    current_yield_usdc: u64,
+    current_hedge_usdc: u64,
+    reserve_target_usdc: u64,
+    queued_need_usdc: u64,
+    only_unwind: bool,
+    live_cetus_position_present: bool,
+    live_yield_position_present: bool,
+    live_hedge_position_present: bool,
+}
+
 public struct CetusPositionKey has copy, drop, store {}
 
 fun cetus_position_key(): CetusPositionKey { CetusPositionKey {} }
@@ -151,6 +187,10 @@ fun sync_strategy_metadata<BASE>(v: &mut Vault<BASE>, cfg: &config::Config, ts_m
         v.hedge_position_id = @0x0;
         v.hedge_notional_usdc = 0;
     }
+}
+
+fun hedge_position_present<BASE>(v: &Vault<BASE>): bool {
+    v.hedge_position_id != @0x0 || balance::value(&v.hedge_margin_balance) > 0
 }
 
 fun bool_to_u64(v: bool): u64 {
@@ -412,8 +452,6 @@ fun target_strategy_mix<BASE>(
     let total_assets = vault::total_assets(&v.state);
     let ready_usdc = queue::total_ready_usdc(queue::state(q));
     let pending_usdc = queue::total_pending_usdc(queue::state(q));
-    let queued_need = math::safe_add(ready_usdc, pending_usdc);
-
     if (vault::is_only_unwind(&vault::risk_mode(&v.state))) {
         let target_yield = if (yield_source::is_available(cfg)) { balance::value(&v.yield_balance) } else { 0 };
         return (0, target_yield, 0)
@@ -422,22 +460,107 @@ fun target_strategy_mix<BASE>(
     let regime = oracle::current_regime(&v.oracle);
     let (yield_bps, lp_bps, buffer_bps) = vault::get_allocation(&regime);
     let reserved_liquidity = types::reserve_target_usdc(buffer_bps, total_assets, ready_usdc, pending_usdc);
-    let max_deployable = if (total_assets > reserved_liquidity) { total_assets - reserved_liquidity } else { 0 };
-    let lp_nominal = if (cetus_amm::is_available(cfg)) { math::mul_div(total_assets, lp_bps, 10000) } else { 0 };
-    let lp_capacity = if (perp_hedge::is_available(cfg) && lp_nominal > 0) {
-        math::mul_div(max_deployable, 10000, 10000 + perp_hedge::initial_margin_bps())
-    } else {
-        max_deployable
-    };
-    let target_lp = if (lp_nominal < lp_capacity) { lp_nominal } else { lp_capacity };
-    let hedge_margin_target = if (perp_hedge::is_available(cfg) && target_lp > 0) { perp_hedge::required_margin(target_lp) } else { 0 };
+    let max_deployable = types::max_deployable_usdc(total_assets, reserved_liquidity);
+    let only_unwind = is_only_unwind_mode(v);
 
-    let yield_nominal = if (yield_source::is_available(cfg)) { math::mul_div(total_assets, yield_bps, 10000) } else { 0 };
-    let deployable_after_hedge = if (max_deployable > hedge_margin_target) { max_deployable - hedge_margin_target } else { 0 };
-    let remaining_after_lp = if (deployable_after_hedge > target_lp) { deployable_after_hedge - target_lp } else { 0 };
-    let target_yield = if (yield_nominal < remaining_after_lp) { yield_nominal } else { remaining_after_lp };
+    let target_lp = if (only_unwind) {
+        0
+    } else {
+        types::target_lp_usdc(
+            cetus_amm::is_available(cfg),
+            total_assets,
+            lp_bps,
+            max_deployable,
+            perp_hedge::is_available(cfg),
+            perp_hedge::initial_margin_bps(),
+        )
+    };
+    let hedge_margin_target = if (only_unwind) {
+        0
+    } else {
+        types::target_hedge_margin_usdc(perp_hedge::is_available(cfg), target_lp, perp_hedge::initial_margin_bps())
+    };
+    let target_yield = if (only_unwind) {
+        if (yield_source::is_available(cfg)) { max_deployable } else { 0 }
+    } else {
+        types::target_yield_usdc(
+            yield_source::is_available(cfg),
+            total_assets,
+            yield_bps,
+            max_deployable,
+            target_lp,
+            hedge_margin_target,
+        )
+    };
 
     (target_lp, target_yield, hedge_margin_target)
+}
+
+fun build_strategy_plan<BASE>(
+    v: &Vault<BASE>,
+    q: &queue::WithdrawalQueue,
+    cfg: &config::Config,
+): StrategyPlan {
+    let ready_usdc = queue::total_ready_usdc(queue::state(q));
+    let pending_usdc = queue::total_pending_usdc(queue::state(q));
+    let queued_need = math::safe_add(ready_usdc, pending_usdc);
+    let regime = oracle::current_regime(&v.oracle);
+    let (_, _, buffer_bps) = vault::get_allocation(&regime);
+    let reserve_target = types::reserve_target_usdc(buffer_bps, vault::total_assets(&v.state), ready_usdc, pending_usdc);
+    let (target_lp, target_yield, target_hedge) = target_strategy_mix(v, q, cfg);
+    let current_lp = balance::value(&v.cetus_balance);
+    let current_yield = balance::value(&v.yield_balance);
+    let current_hedge = balance::value(&v.hedge_margin_balance);
+    let only_unwind = is_only_unwind_mode(v);
+    let lp_position_present = has_stored_cetus_position(v);
+    let yield_position_present = live_yield_position_present(v);
+    let hedge_live_present = hedge_position_present(v);
+    let lp_should_close = types::should_close_live_position(lp_position_present, only_unwind, treasury_usdc(v), ready_usdc, pending_usdc);
+    let lp_action = if (lp_should_close) {
+        types::strategy_action_close()
+    } else {
+        types::strategy_leg_action(current_lp, target_lp, lp_position_present)
+    };
+    let yield_action = types::strategy_leg_action(current_yield, target_yield, yield_position_present);
+    let hedge_action = types::strategy_leg_action(current_hedge, target_hedge, hedge_live_present);
+
+    StrategyPlan {
+        lp_action,
+        yield_action,
+        hedge_action,
+        target_lp_usdc: target_lp,
+        target_yield_usdc: target_yield,
+        target_hedge_usdc: target_hedge,
+        current_lp_usdc: current_lp,
+        current_yield_usdc: current_yield,
+        current_hedge_usdc: current_hedge,
+        reserve_target_usdc: reserve_target,
+        queued_need_usdc: queued_need,
+        only_unwind,
+        live_cetus_position_present: lp_position_present,
+        live_yield_position_present: yield_position_present,
+        live_hedge_position_present: hedge_live_present,
+    }
+}
+
+fun emit_strategy_plan_event(plan: &StrategyPlan) {
+    event::emit(StrategyPlannedEvent {
+        lp_action: plan.lp_action,
+        yield_action: plan.yield_action,
+        hedge_action: plan.hedge_action,
+        target_lp_usdc: plan.target_lp_usdc,
+        target_yield_usdc: plan.target_yield_usdc,
+        target_hedge_usdc: plan.target_hedge_usdc,
+        current_lp_usdc: plan.current_lp_usdc,
+        current_yield_usdc: plan.current_yield_usdc,
+        current_hedge_usdc: plan.current_hedge_usdc,
+        reserve_target_usdc: plan.reserve_target_usdc,
+        queued_need_usdc: plan.queued_need_usdc,
+        only_unwind: plan.only_unwind,
+        live_cetus_position_present: plan.live_cetus_position_present,
+        live_yield_position_present: plan.live_yield_position_present,
+        live_hedge_position_present: plan.live_hedge_position_present,
+    });
 }
 
 fun rebalance_strategy_accounting<BASE>(
@@ -446,58 +569,74 @@ fun rebalance_strategy_accounting<BASE>(
     cfg: &config::Config,
     ts_ms: u64,
 ) {
-    if (has_stored_cetus_position(v)) {
-        v.last_rebalance_used_flash = false;
-        record_cetus_live_hold(v, cfg, ts_ms);
-        sync_strategy_metadata(v, cfg, ts_ms);
-        return
-    };
-
     if (!cetus_amm::is_available(cfg) && !yield_source::is_available(cfg) && !perp_hedge::is_available(cfg)) {
         v.last_rebalance_used_flash = false;
         sync_strategy_metadata(v, cfg, ts_ms);
         return
     };
 
-    let (target_lp, target_yield, target_hedge) = target_strategy_mix(v, q, cfg);
-
-    let current_lp = balance::value(&v.cetus_balance);
-    let current_yield = balance::value(&v.yield_balance);
-    let current_hedge = balance::value(&v.hedge_margin_balance);
-
-    let lp_delta = if (current_lp > target_lp) { current_lp - target_lp } else { target_lp - current_lp };
-    let yield_delta = if (current_yield > target_yield) { current_yield - target_yield } else { target_yield - current_yield };
-    let hedge_delta = if (current_hedge > target_hedge) { current_hedge - target_hedge } else { target_hedge - current_hedge };
+    let plan = build_strategy_plan(v, q, cfg);
+    let lp_delta = if (plan.current_lp_usdc > plan.target_lp_usdc) { plan.current_lp_usdc - plan.target_lp_usdc } else { plan.target_lp_usdc - plan.current_lp_usdc };
+    let yield_delta = if (plan.current_yield_usdc > plan.target_yield_usdc) { plan.current_yield_usdc - plan.target_yield_usdc } else { plan.target_yield_usdc - plan.current_yield_usdc };
+    let hedge_delta = if (plan.current_hedge_usdc > plan.target_hedge_usdc) { plan.current_hedge_usdc - plan.target_hedge_usdc } else { plan.target_hedge_usdc - plan.current_hedge_usdc };
     let total_delta = math::safe_add(math::safe_add(lp_delta, yield_delta), hedge_delta);
     v.last_rebalance_used_flash = rebalancer::rebalance_flash(cfg, total_delta);
     let _ = if (!v.last_rebalance_used_flash) { rebalancer::rebalance_ptb(cfg, total_delta) } else { false };
 
-    if (current_hedge > target_hedge) {
-        move_balance_to_treasury(&mut v.hedge_margin_balance, &mut v.treasury, current_hedge - target_hedge)
+    if (plan.current_hedge_usdc > plan.target_hedge_usdc) {
+        move_balance_to_treasury(&mut v.hedge_margin_balance, &mut v.treasury, plan.current_hedge_usdc - plan.target_hedge_usdc)
     };
-    if (current_yield > target_yield) {
-        move_balance_to_treasury(&mut v.yield_balance, &mut v.treasury, current_yield - target_yield)
+    if (plan.current_yield_usdc > plan.target_yield_usdc) {
+        move_balance_to_treasury(&mut v.yield_balance, &mut v.treasury, plan.current_yield_usdc - plan.target_yield_usdc)
     };
-    if (current_lp > target_lp) {
-        move_balance_to_treasury(&mut v.cetus_balance, &mut v.treasury, current_lp - target_lp)
+    if (!plan.live_cetus_position_present && plan.current_lp_usdc > plan.target_lp_usdc) {
+        move_balance_to_treasury(&mut v.cetus_balance, &mut v.treasury, plan.current_lp_usdc - plan.target_lp_usdc)
     };
 
     let next_lp = balance::value(&v.cetus_balance);
     let next_yield = balance::value(&v.yield_balance);
     let next_hedge = balance::value(&v.hedge_margin_balance);
 
-    if (next_lp < target_lp) {
-        move_treasury_to_balance(&mut v.treasury, &mut v.cetus_balance, target_lp - next_lp)
+    if (!plan.live_cetus_position_present && next_lp < plan.target_lp_usdc) {
+        move_treasury_to_balance(&mut v.treasury, &mut v.cetus_balance, plan.target_lp_usdc - next_lp)
     };
-    if (next_yield < target_yield) {
-        move_treasury_to_balance(&mut v.treasury, &mut v.yield_balance, target_yield - next_yield)
+    if (next_yield < plan.target_yield_usdc) {
+        move_treasury_to_balance(&mut v.treasury, &mut v.yield_balance, plan.target_yield_usdc - next_yield)
     };
-    if (next_hedge < target_hedge) {
-        move_treasury_to_balance(&mut v.treasury, &mut v.hedge_margin_balance, target_hedge - next_hedge)
+    if (next_hedge < plan.target_hedge_usdc) {
+        move_treasury_to_balance(&mut v.treasury, &mut v.hedge_margin_balance, plan.target_hedge_usdc - next_hedge)
     };
 
     vault::set_treasury_usdc_for_testing(&mut v.state, balance::value(&v.treasury));
+    if (plan.live_cetus_position_present && plan.lp_action == types::strategy_action_hold()) {
+        record_cetus_live_hold(v, cfg, ts_ms)
+    };
     sync_strategy_metadata(v, cfg, ts_ms);
+}
+
+public(package) fun strategy_plan_actions_for_testing<BASE>(
+    v: &Vault<BASE>,
+    q: &queue::WithdrawalQueue,
+    cfg: &config::Config,
+): (u64, u64, u64, u64, u64, u64) {
+    let plan = build_strategy_plan(v, q, cfg);
+    (
+        plan.lp_action,
+        plan.yield_action,
+        plan.hedge_action,
+        plan.target_lp_usdc,
+        plan.target_yield_usdc,
+        plan.target_hedge_usdc,
+    )
+}
+
+public(package) fun should_close_live_cetus_from_strategy<BASE>(
+    v: &Vault<BASE>,
+    q: &queue::WithdrawalQueue,
+    cfg: &config::Config,
+): bool {
+    let plan = build_strategy_plan(v, q, cfg);
+    plan.lp_action == types::strategy_action_close()
 }
 
 public fun has_cetus_position<BASE>(v: &Vault<BASE>): bool { v.cetus_deployed_usdc > 0 }
@@ -762,6 +901,8 @@ public fun cycle<BASE>(
         option::none()
     };
 
+    let plan = build_strategy_plan(v, q, cfg);
+    emit_strategy_plan_event(&plan);
     rebalance_strategy_accounting(v, q, cfg, ts_ms);
     assert_vault_synced(v);
 

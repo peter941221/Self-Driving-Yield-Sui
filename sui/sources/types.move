@@ -11,6 +11,10 @@ const BUFFER_EXTRA_HIGH_BPS: u64 = 500;
 const MAX_ADJUSTED_BUFFER_BPS: u64 = 1200;
 const PENDING_RESERVE_HAIRCUT_BPS: u64 = 5000;
 const EMERGENCY_BUFFER_FLOOR_USDC: u64 = 300;
+const STRATEGY_ACTION_HOLD: u64 = 0;
+const STRATEGY_ACTION_DEPLOY: u64 = 1;
+const STRATEGY_ACTION_REDUCE: u64 = 2;
+const STRATEGY_ACTION_CLOSE: u64 = 3;
 
 public enum Regime has copy, drop, store {
     Calm,
@@ -61,6 +65,10 @@ public fun is_only_unwind(m: &RiskMode): bool {
 public fun max_adjusted_buffer_bps(): u64 { MAX_ADJUSTED_BUFFER_BPS }
 public fun pending_reserve_haircut_bps(): u64 { PENDING_RESERVE_HAIRCUT_BPS }
 public fun emergency_buffer_floor_usdc(): u64 { EMERGENCY_BUFFER_FLOOR_USDC }
+public fun strategy_action_hold(): u64 { STRATEGY_ACTION_HOLD }
+public fun strategy_action_deploy(): u64 { STRATEGY_ACTION_DEPLOY }
+public fun strategy_action_reduce(): u64 { STRATEGY_ACTION_REDUCE }
+public fun strategy_action_close(): u64 { STRATEGY_ACTION_CLOSE }
 
 public fun adjusted_buffer_bps(base_buffer_bps: u64, total_assets: u64, queued_need: u64): u64 {
     if (total_assets == 0 || queued_need == 0) {
@@ -112,6 +120,95 @@ public fun reserve_target_usdc(
     let floor_component = if (total_assets < EMERGENCY_BUFFER_FLOOR_USDC) { total_assets } else { EMERGENCY_BUFFER_FLOOR_USDC };
     let max_ab = if (queue_component > buffer_component) { queue_component } else { buffer_component };
     if (max_ab > floor_component) { max_ab } else { floor_component }
+}
+
+public fun max_deployable_usdc(total_assets: u64, reserve_target: u64): u64 {
+    if (total_assets > reserve_target) { total_assets - reserve_target } else { 0 }
+}
+
+public fun lp_capacity_usdc(max_deployable: u64, hedge_enabled: bool, hedge_margin_bps: u64): u64 {
+    if (hedge_enabled && max_deployable > 0) {
+        math::mul_div(max_deployable, 10000, 10000 + hedge_margin_bps)
+    } else {
+        max_deployable
+    }
+}
+
+public fun target_lp_usdc(
+    lp_enabled: bool,
+    total_assets: u64,
+    lp_bps: u64,
+    max_deployable: u64,
+    hedge_enabled: bool,
+    hedge_margin_bps: u64,
+): u64 {
+    if (!lp_enabled || total_assets == 0) {
+        return 0
+    };
+
+    let lp_nominal = math::mul_div(total_assets, lp_bps, 10000);
+    let lp_capacity = lp_capacity_usdc(max_deployable, hedge_enabled, hedge_margin_bps);
+    if (lp_nominal < lp_capacity) { lp_nominal } else { lp_capacity }
+}
+
+public fun target_hedge_margin_usdc(hedge_enabled: bool, lp_target: u64, hedge_margin_bps: u64): u64 {
+    if (hedge_enabled && lp_target > 0) {
+        math::mul_div(lp_target, hedge_margin_bps, 10000)
+    } else {
+        0
+    }
+}
+
+public fun target_yield_usdc(
+    yield_enabled: bool,
+    total_assets: u64,
+    yield_bps: u64,
+    max_deployable: u64,
+    lp_target: u64,
+    hedge_target: u64,
+): u64 {
+    if (!yield_enabled || total_assets == 0) {
+        return 0
+    };
+
+    let yield_nominal = math::mul_div(total_assets, yield_bps, 10000);
+    let deployable_after_hedge = if (max_deployable > hedge_target) { max_deployable - hedge_target } else { 0 };
+    let remaining_after_lp = if (deployable_after_hedge > lp_target) { deployable_after_hedge - lp_target } else { 0 };
+    if (yield_nominal < remaining_after_lp) { yield_nominal } else { remaining_after_lp }
+}
+
+public fun strategy_leg_action(current_value: u64, target_value: u64, position_present: bool): u64 {
+    if (target_value == 0) {
+        if (current_value > 0 || position_present) {
+            STRATEGY_ACTION_CLOSE
+        } else {
+            STRATEGY_ACTION_HOLD
+        }
+    } else if (current_value < target_value) {
+        STRATEGY_ACTION_DEPLOY
+    } else if (current_value > target_value) {
+        STRATEGY_ACTION_REDUCE
+    } else {
+        STRATEGY_ACTION_HOLD
+    }
+}
+
+public fun should_close_live_position(
+    position_present: bool,
+    only_unwind: bool,
+    treasury_usdc: u64,
+    ready_usdc: u64,
+    pending_usdc: u64,
+): bool {
+    if (!position_present) {
+        return false
+    };
+
+    if (only_unwind) {
+        return true
+    };
+
+    math::safe_add(ready_usdc, pending_usdc) > treasury_usdc
 }
 
 /// Allocation in basis points: (yield, lp, buffer).

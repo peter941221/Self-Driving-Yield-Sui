@@ -65,3 +65,21 @@ fun reserve_target_uses_queue_ratio_and_floor() {
     assert!(types::reserve_target_usdc(300, 10_000, 2_000, 2_000) == 3_000, 0);
     assert!(types::reserve_target_usdc(300, 200, 0, 0) == 200, 0);
 }
+
+#[test]
+fun strategy_planner_helpers_cover_core_actions() {
+    assert!(types::max_deployable_usdc(10_000, 3_000) == 7_000, 0);
+    assert!(types::target_hedge_margin_usdc(true, 3_700, 500) == 185, 0);
+    assert!(types::target_hedge_margin_usdc(false, 3_700, 500) == 0, 0);
+    assert!(types::target_yield_usdc(true, 10_000, 4_000, 7_000, 3_000, 150) == 3_850, 0);
+
+    assert!(types::strategy_leg_action(0, 1_000, false) == types::strategy_action_deploy(), 0);
+    assert!(types::strategy_leg_action(2_000, 1_000, false) == types::strategy_action_reduce(), 0);
+    assert!(types::strategy_leg_action(1_000, 1_000, false) == types::strategy_action_hold(), 0);
+    assert!(types::strategy_leg_action(0, 0, true) == types::strategy_action_close(), 0);
+    assert!(types::strategy_leg_action(500, 0, false) == types::strategy_action_close(), 0);
+
+    assert!(types::should_close_live_position(true, true, 1_000, 0, 0), 0);
+    assert!(types::should_close_live_position(true, false, 1_000, 800, 300), 0);
+    assert!(!types::should_close_live_position(false, true, 0, 1, 1), 0);
+}

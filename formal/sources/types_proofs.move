@@ -36,6 +36,72 @@ fun reserve_target_zero_when_assets_zero_spec(base_buffer_bps: u64, ready_usdc: 
 }
 
 #[spec(prove)]
+fun max_deployable_never_exceeds_total_assets_spec(total_assets: u64, reserve_target: u64): u64 {
+    let result = types::max_deployable_usdc(total_assets, reserve_target);
+    ensures(result <= total_assets);
+    result
+}
+
+#[spec(prove)]
+fun target_hedge_zero_when_unavailable_spec(lp_target: u64, hedge_margin_bps: u64): u64 {
+    let result = types::target_hedge_margin_usdc(false, lp_target, hedge_margin_bps);
+    ensures(result == 0);
+    result
+}
+
+#[spec(prove)]
+fun target_yield_zero_when_unavailable_spec(total_assets: u64, yield_bps: u64, max_deployable: u64, lp_target: u64, hedge_target: u64): u64 {
+    let result = types::target_yield_usdc(false, total_assets, yield_bps, max_deployable, lp_target, hedge_target);
+    ensures(result == 0);
+    result
+}
+
+#[spec(prove)]
+fun strategy_leg_action_zero_target_closes_present_position_spec(current_value: u64): u64 {
+    let result = types::strategy_leg_action(current_value, 0, true);
+    ensures(result == types::strategy_action_close());
+    result
+}
+
+#[spec(prove)]
+fun strategy_leg_action_equal_target_holds_spec(target_value: u64, position_present: bool): u64 {
+    let result = types::strategy_leg_action(target_value, target_value, position_present);
+    ensures(if (target_value == 0 && position_present) result == types::strategy_action_close() else result == types::strategy_action_hold());
+    result
+}
+
+#[spec(prove)]
+fun strategy_leg_action_target_above_current_deploys_spec(current_value: u64, target_value: u64, position_present: bool): u64 {
+    requires(target_value > current_value);
+    let result = types::strategy_leg_action(current_value, target_value, position_present);
+    ensures(result == types::strategy_action_deploy());
+    result
+}
+
+#[spec(prove)]
+fun strategy_leg_action_target_below_current_reduces_spec(current_value: u64, target_value: u64, position_present: bool): u64 {
+    requires(current_value > target_value);
+    requires(target_value > 0);
+    let result = types::strategy_leg_action(current_value, target_value, position_present);
+    ensures(result == types::strategy_action_reduce());
+    result
+}
+
+#[spec(prove)]
+fun should_close_live_position_only_unwind_spec(treasury_usdc: u64, ready_usdc: u64, pending_usdc: u64): bool {
+    let result = types::should_close_live_position(true, true, treasury_usdc, ready_usdc, pending_usdc);
+    ensures(result);
+    result
+}
+
+#[spec(prove)]
+fun should_close_live_position_without_position_is_false_spec(only_unwind: bool, treasury_usdc: u64, ready_usdc: u64, pending_usdc: u64): bool {
+    let result = types::should_close_live_position(false, only_unwind, treasury_usdc, ready_usdc, pending_usdc);
+    ensures(!result);
+    result
+}
+
+#[spec(prove)]
 fun queue_pressure_zero_without_demand_spec(total_assets: u64): u64 {
     requires(total_assets > 0);
     let result = types::queue_pressure_score_bps(total_assets, 0, 0);

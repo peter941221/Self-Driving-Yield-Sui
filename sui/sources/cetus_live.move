@@ -302,15 +302,8 @@ public fun rebalance_live<BASE, CoinTypeA, CoinTypeB>(
     }
 }
 
-fun should_close_live_position<BASE>(v: &entrypoints::Vault<BASE>, q: &queue::WithdrawalQueue): bool {
-    if (!entrypoints::has_stored_cetus_position(v)) {
-        return false
-    };
-    if (entrypoints::is_only_unwind_mode(v)) {
-        return true
-    };
-    let queued_need = queue::total_ready_usdc(queue::state(q)) + queue::total_pending_usdc(queue::state(q));
-    queued_need > entrypoints::treasury_usdc(v)
+fun should_close_live_position<BASE>(v: &entrypoints::Vault<BASE>, q: &queue::WithdrawalQueue, cfg: &config::Config): bool {
+    entrypoints::should_close_live_cetus_from_strategy(v, q, cfg)
 }
 
 public fun cycle_live<BASE, CoinTypeA, CoinTypeB>(
@@ -323,7 +316,7 @@ public fun cycle_live<BASE, CoinTypeA, CoinTypeB>(
     clock: &Clock,
     ctx: &mut TxContext,
 ): (u64, option::Option<coin::Coin<BASE>>, coin::Coin<CoinTypeA>, coin::Coin<CoinTypeB>, u64, u64, u64) {
-    let should_close_before = should_close_live_position(v, q);
+    let should_close_before = should_close_live_position(v, q, cfg);
     if (should_close_before) {
         assert_pool_matches_config(cfg, clmm_pool);
         let (_, amount_a, amount_b) = stored_position_snapshot(v, clmm_pool);
@@ -333,7 +326,7 @@ public fun cycle_live<BASE, CoinTypeA, CoinTypeB>(
     };
 
     let (moved, bounty_opt, amount_a, amount_b) = rebalance_live(v, q, cfg, clmm_pool, spot_price, clock, ctx);
-    if (should_close_live_position(v, q)) {
+    if (should_close_live_position(v, q, cfg)) {
         let (coin_a_out, coin_b_out) = close_stored_position_from_vault(v, cfg, clmm_cfg, clmm_pool, clock, ctx);
         (moved, bounty_opt, coin_a_out, coin_b_out, 3, amount_a, amount_b)
     } else {

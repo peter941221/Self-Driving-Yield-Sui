@@ -14,12 +14,13 @@ This file is the tracked, public-facing summary of what the repo currently prove
 
 - Package: `formal/`
 - Runner: `bash scripts/formal_verify_wsl.sh -v`
-- Current green scope: `37` proof entrypoints
+- Current green scope: `46` proof entrypoints
 - Highlights:
   - regime classification
   - first-snapshot transition
   - queue reserve accounting slices
   - adjusted-buffer cap boundaries
+  - planner action / live-close intent helpers
   - reserve-floor / queue-pressure helper math
   - share math
   - first-deposit accounting

@@ -32,6 +32,15 @@ This matrix maps the current green `formal/` suite to the repo's core invariants
 | `types_proofs::reserve_target_small_assets_no_pressure_equals_total_assets_spec` | `types::reserve_target_usdc` | reserve floor | small asset base collapses reserve to total assets |
 | `types_proofs::reserve_target_large_assets_zero_buffer_hits_floor_spec` | `types::reserve_target_usdc` | reserve floor | zero-buffer large asset case hits emergency floor |
 | `types_proofs::queue_pressure_monotone_in_ready_zero_pending_spec` | `types::queue_pressure_score_bps` | monotonicity slice | with zero pending, more ready demand never lowers queue pressure |
+| `types_proofs::max_deployable_never_exceeds_total_assets_spec` | `types::max_deployable_usdc` | deployable bound | max deployable never exceeds total assets |
+| `types_proofs::target_hedge_zero_when_unavailable_spec` | `types::target_hedge_margin_usdc` | planner gating | disabled hedge venue forces zero hedge target |
+| `types_proofs::target_yield_zero_when_unavailable_spec` | `types::target_yield_usdc` | planner gating | disabled yield venue forces zero yield target |
+| `types_proofs::strategy_leg_action_zero_target_closes_present_position_spec` | `types::strategy_leg_action` | planner action | zero target with a present position closes the leg |
+| `types_proofs::strategy_leg_action_equal_target_holds_spec` | `types::strategy_leg_action` | planner action | matching target holds unless a zero-target present position must close |
+| `types_proofs::strategy_leg_action_target_above_current_deploys_spec` | `types::strategy_leg_action` | planner action | larger target deploys more capital |
+| `types_proofs::strategy_leg_action_target_below_current_reduces_spec` | `types::strategy_leg_action` | planner action | smaller positive target reduces deployed capital |
+| `types_proofs::should_close_live_position_only_unwind_spec` | `types::should_close_live_position` | live close intent | `OnlyUnwind` always requests a live close when a position is present |
+| `types_proofs::should_close_live_position_without_position_is_false_spec` | `types::should_close_live_position` | live close intent | missing live position always suppresses close intent |
 | `vault_proofs::calc_shares_first_deposit_is_one_to_one_spec` | `vault::calc_shares_to_mint` | share math | first deposit mints 1:1 |
 | `vault_proofs::calc_shares_matches_mul_div_when_pool_exists_spec` | `vault::calc_shares_to_mint` | share math | live-pool mint math matches floor division |
 | `vault_proofs::set_risk_mode_only_unwind_resets_safe_cycles_spec` | `vault::set_risk_mode` | risk mode | entering `OnlyUnwind` resets safe-cycle counter |
