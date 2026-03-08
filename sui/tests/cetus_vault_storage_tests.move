@@ -358,7 +358,7 @@ fun cycle_live_closes_stored_position_under_queue_pressure() {
         option::destroy_none(base_opt);
         transfer::public_transfer(shares, admin);
 
-        let (_, bounty_opt, out_a, out_b, action_code, _, _) = cetus_live::cycle_live<usdc::USDC, pool_tests::CoinA, pool_tests::CoinB>(
+        let (_, bounty_opt, out_a, out_b, action_code, amount_a, amount_b) = cetus_live::cycle_live<usdc::USDC, pool_tests::CoinA, pool_tests::CoinB>(
             &mut v,
             &mut q,
             &cfg,
@@ -372,6 +372,7 @@ fun cycle_live_closes_stored_position_under_queue_pressure() {
         assert!(action_code == 3, 0);
         assert!(!entrypoints::has_stored_cetus_position(&v), 0);
         assert!(!entrypoints::live_cetus_position_present(&v), 0);
+        assert!(amount_a > 0 || amount_b > 0, 0);
         assert!(coin::value(&out_a) > 0 || coin::value(&out_b) > 0, 0);
         transfer::public_transfer(out_a, admin);
         transfer::public_transfer(out_b, admin);

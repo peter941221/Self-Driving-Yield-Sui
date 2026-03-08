@@ -55,6 +55,16 @@ fun assert_pool_matches_config<CoinTypeA, CoinTypeB>(
     assert!(config::cetus_pool_id(cfg) == pool_address(clmm_pool), errors::e_object_mismatch());
 }
 
+fun stored_position_snapshot<BASE, CoinTypeA, CoinTypeB>(
+    v: &entrypoints::Vault<BASE>,
+    clmm_pool: &Pool<CoinTypeA, CoinTypeB>,
+): (address, u64, u64) {
+    let position_ref = entrypoints::borrow_stored_cetus_position(v);
+    let position_id = entrypoints::stored_cetus_position_id(v);
+    let (amount_a, amount_b) = cetus_amm::get_position_amounts(clmm_pool, position_ref);
+    (position_id, amount_a, amount_b)
+}
+
 fun open_position_with_liquidity_details<CoinTypeA, CoinTypeB>(
     cfg: &config::Config,
     clmm_cfg: &GlobalConfig,
@@ -284,9 +294,7 @@ public fun rebalance_live<BASE, CoinTypeA, CoinTypeB>(
     assert_pool_matches_config(cfg, clmm_pool);
 
     if (entrypoints::has_stored_cetus_position(v)) {
-        let position_ref = entrypoints::borrow_stored_cetus_position(v);
-        let position_id = entrypoints::stored_cetus_position_id(v);
-        let (amount_a, amount_b) = cetus_amm::get_position_amounts(clmm_pool, position_ref);
+        let (position_id, amount_a, amount_b) = stored_position_snapshot(v, clmm_pool);
         entrypoints::record_cetus_live_snapshot(v, cfg, position_id, amount_a, amount_b, clock::timestamp_ms(clock));
         (moved, bounty_opt, amount_a, amount_b)
     } else {
@@ -316,8 +324,16 @@ public fun cycle_live<BASE, CoinTypeA, CoinTypeB>(
     ctx: &mut TxContext,
 ): (u64, option::Option<coin::Coin<BASE>>, coin::Coin<CoinTypeA>, coin::Coin<CoinTypeB>, u64, u64, u64) {
     let should_close_before = should_close_live_position(v, q);
+    if (should_close_before) {
+        assert_pool_matches_config(cfg, clmm_pool);
+        let (_, amount_a, amount_b) = stored_position_snapshot(v, clmm_pool);
+        let (coin_a_out, coin_b_out) = close_stored_position_from_vault(v, cfg, clmm_cfg, clmm_pool, clock, ctx);
+        let (moved, bounty_opt) = entrypoints::cycle(v, q, cfg, spot_price, clock, ctx);
+        return (moved, bounty_opt, coin_a_out, coin_b_out, 3, amount_a, amount_b)
+    };
+
     let (moved, bounty_opt, amount_a, amount_b) = rebalance_live(v, q, cfg, clmm_pool, spot_price, clock, ctx);
-    if (should_close_before || should_close_live_position(v, q)) {
+    if (should_close_live_position(v, q)) {
         let (coin_a_out, coin_b_out) = close_stored_position_from_vault(v, cfg, clmm_cfg, clmm_pool, clock, ctx);
         (moved, bounty_opt, coin_a_out, coin_b_out, 3, amount_a, amount_b)
     } else {

@@ -102,6 +102,20 @@ fun compute_cycle_bounty_is_bounded_spec(remaining: u64, total_assets: u64): u64
 }
 
 #[spec(prove)]
+fun compute_cycle_bounty_zero_remaining_is_zero_spec(total_assets: u64): u64 {
+    let result = vault::compute_cycle_bounty(0, total_assets);
+    ensures(result == 0);
+    result
+}
+
+#[spec(prove)]
+fun compute_cycle_bounty_zero_assets_is_zero_spec(remaining: u64): u64 {
+    let result = vault::compute_cycle_bounty(remaining, 0);
+    ensures(result == 0);
+    result
+}
+
+#[spec(prove)]
 fun cycle_empty_state_first_pass_spec(spot_price: u64, ts_ms: u64): (u64, u64) {
     requires(spot_price > 0);
     let mut state = vault::new_state();

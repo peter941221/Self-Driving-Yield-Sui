@@ -22,6 +22,8 @@ This matrix maps the current green `formal/` suite to the repo's core invariants
 | `queue_proofs::enqueue_single_request_updates_totals_spec` | `queue::enqueue` | queue accounting | enqueue updates ids, pending totals, and request fields |
 | `queue_proofs::claim_ready_reduces_reserved_total_spec` | `queue::claim_ready` | reserved-liquidity accounting | claiming ready request decrements reserved ready total |
 | `queue_proofs::process_queue_empty_queue_target_spec` | `queue::process_queue` | empty-queue no-op slice | empty queue with zero treasury returns zero moved |
+| `types_proofs::adjusted_buffer_never_exceeds_max_spec` | `types::adjusted_buffer_bps` | reserve cap | adjusted buffer never exceeds the configured max when base buffer is in range |
+| `types_proofs::adjusted_buffer_high_pressure_caps_spec` | `types::adjusted_buffer_bps` | reserve cap boundary | high-pressure path caps at `MAX_ADJUSTED_BUFFER_BPS` |
 | `types_proofs::allocation_sums_to_10k_spec` | `types::get_allocation` | allocation math | allocation always sums to `10000` bps |
 | `types_proofs::adjusted_buffer_identity_without_pressure_spec` | `types::adjusted_buffer_bps` | reserve math | no pressure leaves base buffer unchanged |
 | `types_proofs::queue_pressure_zero_when_assets_zero_spec` | `types::queue_pressure_score_bps` | reserve math | zero assets forces zero queue pressure |
@@ -39,6 +41,8 @@ This matrix maps the current green `formal/` suite to the repo's core invariants
 | `vault_proofs::apply_cycle_regime_normal_first_safe_cycle_does_not_restore_spec` | `vault::apply_cycle_regime` | cycle slice | first safe normal cycle increments counter but keeps `OnlyUnwind` |
 | `vault_proofs::apply_cycle_regime_normal_second_safe_cycle_restores_spec` | `vault::apply_cycle_regime` | cycle slice | second safe normal cycle restores `Normal` mode |
 | `vault_proofs::compute_cycle_bounty_is_bounded_spec` | `vault::compute_cycle_bounty` | bounty bound | bounty is bounded by remaining and capped share of assets |
+| `vault_proofs::compute_cycle_bounty_zero_remaining_is_zero_spec` | `vault::compute_cycle_bounty` | zero edge | zero remaining assets yields zero bounty |
+| `vault_proofs::compute_cycle_bounty_zero_assets_is_zero_spec` | `vault::compute_cycle_bounty` | zero edge | zero total assets yields zero bounty |
 | `vault_proofs::cycle_empty_state_first_pass_spec` | `vault::cycle` | cycle wrapper slice | empty-state first pass keeps assets/treasury at zero, snapshots once, and updates cycle timestamp |
 | `yield_source_proofs::normalize_receipt_zero_when_invalid_spec` | `yield_source::normalize_live_receipt_id` | live bookkeeping | invalid receipt/value/config normalizes to zero |
 | `yield_source_proofs::normalize_receipt_preserves_valid_id_spec` | `yield_source::normalize_live_receipt_id` | live bookkeeping | valid receipt id is preserved |

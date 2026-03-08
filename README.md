@@ -228,6 +228,7 @@ What is included now:
 - local Cetus wrapper tests now cover `open / add / remove / swap / amount` flows
 - explicit live LP helper path now includes `open_position_into_vault / rebalance_live / close_stored_position_from_vault`
 - `cetus_live` now also has a `cycle_live` path that can auto-close a stored live Position under stress / queue pressure when the operator passes the real pool objects
+- `scripts/cetus_cycle_live_probe.py` now proves the queue-pressure `cycle_live` branch on real testnet objects and checks that `CetusPositionClosedEvent` lands before `CycleEvent`
 - vault now persists live Cetus metadata for `open -> hold snapshot -> close`
 - a real `Scallop` supply probe script now exists: `python scripts/scallop_supply_probe.py --help`
 - latest Scallop mainnet proof succeeded: `depositQuick -> query -> withdrawQuick` now has a real archived report under `out/reports/scallop_supply_probe_20260307T120021Z.json`
@@ -278,7 +279,7 @@ bash scripts/formal_verify_wsl.sh -v
 Current formal scope:
 
 - `formal/` proves the core helper / accounting layer
-- current green areas include `oracle::compute_regime` + first-snapshot transition, `queue::claim_ready` + empty-queue `process_queue` slice, queue creation/enqueue accounting, reserve / queue-pressure math identities, share math, first-deposit accounting, cycle helper proofs (`apply_cycle_regime` / `compute_cycle_bounty`), one empty-state `vault::cycle()` wrapper proof, risk-mode restore/reset, and live-yield bookkeeping helpers
+- current green areas now span `37` proof entrypoints, including `oracle::compute_regime` + first-snapshot transition, `queue::claim_ready` + empty-queue `process_queue` slice, queue creation/enqueue accounting, reserve / queue-pressure math identities, adjusted-buffer cap boundaries, share math, first-deposit accounting, cycle helper proofs (`apply_cycle_regime` / `compute_cycle_bounty`), one empty-state `vault::cycle()` wrapper proof, risk-mode restore/reset, zero-edge bounty proofs, and live-yield bookkeeping helpers
 - `cycle()` and live shared-object paths are still intentionally outside the current formal boundary
 
 ### Chaos Phase 1 (local)
@@ -547,6 +548,7 @@ For the first real external-object slice, use the dedicated live probe:
 
 ```bash
 python scripts/cetus_live_probe.py --help
+python scripts/cetus_cycle_live_probe.py --help
 python scripts/cetus_live_suite.py --help
 python scripts/sui_staking_probe.py --help
 ```
@@ -565,6 +567,35 @@ Latest real-object proof on `2026-03-07`:
 - probe digests: open `DEcDuiCYaxZ1um1CTZ6eknB1iCZbcJixVpJfo5vXZHqZ`, close `6D61T4sevFafRGpBCnd5D3buruPzrGm2zoJWvCroQhs3`
 - one-click replay now exists: `python scripts/cetus_live_suite.py --help`
 - result: the repo now has current testnet evidence for a real external-object Cetus path, not only accounting-only lifecycle smoke
+
+Latest queue-pressure `cycle_live` proof on `2026-03-08`:
+
+- dedicated manifest: `out/deployments/testnet_cetus_cycle_live.json`
+- fresh package for this probe: `0x179c80eb1431016796e4bc9ce62f6da22fc151189b0964e26190f2f8ff0c7981`
+- archived report: `out/reports/cetus_cycle_live_probe_20260308T075620Z.json`
+- the live tx `3tjoD7afc5Qd1xiAmsF4kVa25Kj522JTZkkMG51fqSL3` emitted `CetusPositionClosedEvent` before `CycleEvent` (`2 < 3`), which confirms the current `cycle_live` queue-pressure branch now closes the real Position before running the core cycle
+- same tx ended with `ready_usdc = 724753578`, `treasury_usdc = 724753578`, `deployed_usdc = 0`, so this branch now leaves accounting and real-object close evidence aligned in one on-chain step
+
+### P5 Status Now
+
+What is already true:
+
+- native lifecycle smoke is working on testnet
+- native staking has a real testnet proof path
+- Scallop has a real supply / withdraw proof path
+- Cetus has real-object proofs for `open -> close`, vault-held Position ownership across transactions, and queue-pressure `cycle_live` close-before-cycle behavior
+- formal and local chaos layers are both green on the current scope
+
+What is still not done:
+
+- `vault::cycle()` is not yet a full live multi-adapter strategy engine
+- live adapter wiring is still strongest on the Cetus path; other DeFi legs are not yet at the same operational depth
+- Aftermath perps should still be treated as blocked on testnet until a working path is revalidated
+
+What matters for sign-off:
+
+- package immutability should be decided after P5 evidence is considered sufficient
+- the next useful step is to either deepen one more real live leg or convert the current evidence into a tighter release / sign-off checklist
 
 Latest vault-ownership proof on `2026-03-07`:
 
@@ -632,6 +663,7 @@ sui/
 
 scripts/
 ├─ backtest.py
+├─ cetus_cycle_live_probe.py
 ├─ cetus_live_probe.py
 ├─ deploy_sui.py
 ├─ monitor_sui.py

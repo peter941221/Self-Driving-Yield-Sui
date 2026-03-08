@@ -73,3 +73,20 @@ fun queue_pressure_monotone_in_ready_zero_pending_spec(total_assets: u64, ready_
     ensures(high >= low);
     high
 }
+
+#[spec(prove)]
+fun adjusted_buffer_never_exceeds_max_spec(base_buffer_bps: u64, total_assets: u64, queued_need: u64): u64 {
+    requires(base_buffer_bps <= types::max_adjusted_buffer_bps());
+    requires(total_assets == 0 || queued_need == 0 || queued_need.to_int().mul(10000u64.to_int()).div(total_assets.to_int()).lte(18446744073709551615u64.to_int()));
+    let result = types::adjusted_buffer_bps(base_buffer_bps, total_assets, queued_need);
+    ensures(result <= types::max_adjusted_buffer_bps());
+    ensures(result >= base_buffer_bps);
+    result
+}
+
+#[spec(prove)]
+fun adjusted_buffer_high_pressure_caps_spec(): u64 {
+    let result = types::adjusted_buffer_bps(800, 10000, 5000);
+    ensures(result == types::max_adjusted_buffer_bps());
+    result
+}
