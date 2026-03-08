@@ -2,6 +2,7 @@
 import argparse
 import datetime
 import json
+import os
 import re
 import subprocess
 import tomllib
@@ -11,11 +12,18 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PACKAGE_PATH = ROOT / "sui"
 
 
+def resolve_cmd(cmd):
+    if cmd and cmd[0] == "sui" and os.environ.get("SUI_BIN"):
+        return [os.environ["SUI_BIN"], *cmd[1:]]
+    return cmd
+
+
 def run(cmd, cwd=ROOT):
-    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    resolved = resolve_cmd(list(cmd))
+    result = subprocess.run(resolved, cwd=cwd, capture_output=True, text=True)
     if result.returncode != 0:
         message = result.stderr.strip() or result.stdout.strip() or "unknown error"
-        raise SystemExit(f"Command failed: {' '.join(cmd)}\n{message}")
+        raise SystemExit(f"Command failed: {' '.join(resolved)}\n{message}")
     return result.stdout.strip()
 
 

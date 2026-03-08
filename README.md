@@ -280,6 +280,20 @@ Current formal scope:
 - current green areas include `oracle::compute_regime` + first-snapshot transition, `queue::claim_ready` + empty-queue `process_queue` slice, queue creation/enqueue accounting, reserve / queue-pressure math identities, share math, first-deposit accounting, cycle helper proofs (`apply_cycle_regime` / `compute_cycle_bounty`), risk-mode restore/reset, and live-yield bookkeeping helpers
 - `cycle()` and live shared-object paths are still intentionally outside the current formal boundary
 
+### Chaos Phase 1 (local)
+
+Run the local blocker / operator-safety harness:
+
+```bash
+python scripts/chaos_phase1.py
+```
+
+Current chaos scope:
+
+- bridge blockers: `blocked_bad_report_status`, `blocked_cross_network`, `blocked_wrong_active_env`, `blocked_non_isolated_wallet_state`
+- smoke blocker: `blocked_no_testnet_gas`
+- monitor degraded paths: no-events alert and `OnlyUnwind` / reserve-pressure alert surfacing
+
 ### Windows short-path helper
 
 If your Windows path is too long for Move dependencies:

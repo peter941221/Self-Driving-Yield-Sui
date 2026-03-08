@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -12,11 +13,18 @@ DEFAULT_BASE_TYPE = "0x2::sui::SUI"
 DEFAULT_PRICE_SERIES = [100_000, 100_500, 101_200, 102_800, 103_500, 101_000, 99_500, 98_800, 100_100, 101_700, 103_200, 100_300]
 
 
+def resolve_cmd(cmd):
+    if cmd and cmd[0] == "sui" and os.environ.get("SUI_BIN"):
+        return [os.environ["SUI_BIN"], *cmd[1:]]
+    return cmd
+
+
 def run(cmd, cwd=ROOT):
-    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    resolved = resolve_cmd(list(cmd))
+    result = subprocess.run(resolved, cwd=cwd, capture_output=True, text=True)
     if result.returncode != 0:
         message = result.stderr.strip() or result.stdout.strip() or "unknown error"
-        raise RuntimeError(f"Command failed: {' '.join(cmd)}\n{message}")
+        raise RuntimeError(f"Command failed: {' '.join(resolved)}\n{message}")
     return result.stdout.strip()
 
 
