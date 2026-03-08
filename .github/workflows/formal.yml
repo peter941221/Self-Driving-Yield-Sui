@@ -44,22 +44,15 @@ jobs:
           curl -sSfL https://raw.githubusercontent.com/MystenLabs/suiup/main/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Install Sui CLI
+      - name: Install Sui CLI and run Move tests
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
           suiup install sui@testnet-1.67.1 -y
-          SUI_PATH="$(command -v sui)"
-          echo "SUI_PATH=$SUI_PATH" >> "$GITHUB_ENV"
-          "$SUI_PATH" --version
-
-      - name: Run Move tests
-        run: |
-          set -euo pipefail
-          echo "$SUI_PATH"
-          "$SUI_PATH" --version
+          command -v sui
+          sui --version
           cd sui
-          "$SUI_PATH" move test
+          sui move test
 
   formal:
     runs-on: ubuntu-24.04
