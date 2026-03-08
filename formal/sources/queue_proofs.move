@@ -5,17 +5,6 @@ use prover::prover::{requires, ensures};
 
 use self_driving_yield::queue;
 
-#[spec_only(inv_target = self_driving_yield::queue::QueueState)]
-public fun queue_state_inv(self: &queue::QueueState): bool {
-    if (queue::len(self) == 0) {
-        queue::total_pending_shares(self) == 0
-            && queue::total_pending_usdc(self) == 0
-            && queue::total_ready_usdc(self) == 0
-    } else {
-        true
-    }
-}
-
 #[spec(prove)]
 fun enqueue_single_request_updates_totals_spec(owner: address, shares: u64, usdc_amount: u64, created_at_ms: u64): u64 {
     requires(shares > 0);

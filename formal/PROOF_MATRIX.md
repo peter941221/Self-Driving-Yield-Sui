@@ -39,6 +39,7 @@ This matrix maps the current green `formal/` suite to the repo's core invariants
 | `vault_proofs::apply_cycle_regime_normal_first_safe_cycle_does_not_restore_spec` | `vault::apply_cycle_regime` | cycle slice | first safe normal cycle increments counter but keeps `OnlyUnwind` |
 | `vault_proofs::apply_cycle_regime_normal_second_safe_cycle_restores_spec` | `vault::apply_cycle_regime` | cycle slice | second safe normal cycle restores `Normal` mode |
 | `vault_proofs::compute_cycle_bounty_is_bounded_spec` | `vault::compute_cycle_bounty` | bounty bound | bounty is bounded by remaining and capped share of assets |
+| `vault_proofs::cycle_empty_state_first_pass_spec` | `vault::cycle` | cycle wrapper slice | empty-state first pass keeps assets/treasury at zero, snapshots once, and updates cycle timestamp |
 | `yield_source_proofs::normalize_receipt_zero_when_invalid_spec` | `yield_source::normalize_live_receipt_id` | live bookkeeping | invalid receipt/value/config normalizes to zero |
 | `yield_source_proofs::normalize_receipt_preserves_valid_id_spec` | `yield_source::normalize_live_receipt_id` | live bookkeeping | valid receipt id is preserved |
 | `yield_source_proofs::full_withdraw_zeroes_remaining_value_spec` | `yield_source::value_after_live_withdraw` | live bookkeeping | full withdraw zeroes remaining value |

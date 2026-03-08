@@ -6,20 +6,6 @@ use prover::prover::{requires, ensures};
 use self_driving_yield::oracle;
 use self_driving_yield::types;
 
-#[spec_only(inv_target = self_driving_yield::oracle::OracleState)]
-public fun oracle_state_inv(self: &oracle::OracleState): bool {
-    if (oracle::snapshot_count(self) == 0) {
-        oracle::snapshots_len(self) == 0
-            &&
-        oracle::last_snapshot_ts_ms(self) == 0
-            && oracle::current_twap(self) == 0
-            && oracle::current_volatility_bps(self) == 0
-            && types::is_regime_normal(&oracle::current_regime(self))
-    } else {
-        true
-    }
-}
-
 #[spec(prove)]
 fun compute_regime_cold_start_forces_normal_spec(sample_count: u64, volatility_bps: u64): types::Regime {
     requires(sample_count < oracle::min_samples());

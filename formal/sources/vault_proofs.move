@@ -5,6 +5,8 @@ use prover::prover::{requires, ensures};
 
 use self_driving_yield::vault;
 use self_driving_yield::types;
+use self_driving_yield::queue;
+use self_driving_yield::oracle;
 
 #[spec(prove)]
 fun calc_shares_first_deposit_is_one_to_one_spec(assets_in: u64): u64 {
@@ -97,4 +99,25 @@ fun compute_cycle_bounty_is_bounded_spec(remaining: u64, total_assets: u64): u64
     ensures(result <= remaining);
     ensures(result.to_int().lte(total_assets.to_int().mul(vault::max_bounty_bps().to_int()).div(10000u64.to_int())));
     result
+}
+
+#[spec(prove)]
+fun cycle_empty_state_first_pass_spec(spot_price: u64, ts_ms: u64): (u64, u64) {
+    requires(spot_price > 0);
+    let mut state = vault::new_state();
+    let mut q = queue::new_state();
+    let mut o = oracle::new();
+    let (moved, bounty) = vault::cycle(&mut state, &mut q, &mut o, spot_price, ts_ms, 0, 0);
+    ensures(moved == 0);
+    ensures(bounty == 0);
+    ensures(vault::total_assets(&state) == 0);
+    ensures(vault::treasury_usdc(&state) == 0);
+    ensures(vault::last_cycle_ts_ms(&state) == ts_ms);
+    ensures(queue::len(&q) == 0);
+    ensures(queue::total_pending_shares(&q) == 0);
+    ensures(queue::total_pending_usdc(&q) == 0);
+    ensures(queue::total_ready_usdc(&q) == 0);
+    ensures(oracle::snapshot_count(&o) == 1);
+    ensures(oracle::last_snapshot_ts_ms(&o) == ts_ms);
+    (moved, bounty)
 }
