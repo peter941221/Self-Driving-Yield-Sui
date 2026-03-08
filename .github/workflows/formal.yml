@@ -49,16 +49,17 @@ jobs:
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
           suiup install sui@testnet-1.67.1 -y
-          sui --version
+          SUI_PATH="$(command -v sui)"
+          echo "SUI_PATH=$SUI_PATH" >> "$GITHUB_ENV"
+          "$SUI_PATH" --version
 
       - name: Run Move tests
         run: |
           set -euo pipefail
-          export PATH="$HOME/.local/bin:$PATH"
-          command -v sui
-          sui --version
+          echo "$SUI_PATH"
+          "$SUI_PATH" --version
           cd sui
-          sui move test
+          "$SUI_PATH" move test
 
   formal:
     runs-on: ubuntu-24.04
