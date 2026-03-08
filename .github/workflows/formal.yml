@@ -104,7 +104,15 @@ jobs:
         run: bash scripts/install_sui_prover_wsl.sh
 
       - name: Run formal suite
-        run: bash scripts/formal_verify_wsl.sh -v
+        run: bash scripts/formal_verify_wsl.sh -v | tee formal.log
+
+      - name: Upload formal log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: formal-log
+          path: formal.log
+          retention-days: 7
 
   chaos:
     runs-on: ubuntu-24.04
@@ -120,4 +128,12 @@ jobs:
           python-version: '3.11'
 
       - name: Run chaos Phase 1 harness
-        run: python scripts/chaos_phase1.py
+        run: python scripts/chaos_phase1.py --report-out out/reports/chaos_phase1_ci.json
+
+      - name: Upload chaos reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-reports
+          path: out/reports/chaos_phase1_ci.json
+          retention-days: 7

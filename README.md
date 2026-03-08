@@ -288,6 +288,10 @@ Run the local blocker / operator-safety harness:
 python scripts/chaos_phase1.py
 ```
 
+Current matrix:
+
+- `CHAOS_MATRIX.md`
+
 Current chaos scope:
 
 - bridge blockers: `blocked_bad_report_status`, `blocked_cross_network`, `blocked_wrong_active_env`, `blocked_non_isolated_wallet_state`
@@ -303,6 +307,7 @@ The current CI workflow now runs three layers:
 - `move-tests`: installs `sui` via `suiup` and runs `cd sui && sui move test`
 - `formal`: runs `bash scripts/formal_verify_wsl.sh -v` equivalent on Linux CI
 - `chaos`: runs `python scripts/chaos_phase1.py`
+- CI also uploads a `formal-log` artifact and a `chaos-reports` artifact to make failure triage easier without guessing from email subject lines alone
 
 Cross-platform note:
 
