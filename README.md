@@ -10,7 +10,7 @@
   </a>
   <img src="https://img.shields.io/badge/Platform-Sui%20Move-yellow?style=for-the-badge" alt="Platform">
   <img src="https://img.shields.io/badge/Stage-P5%20Technical%20Closure-brightgreen?style=for-the-badge" alt="Stage">
-  <img src="https://img.shields.io/badge/Release-Final%20Closure%20Open-orange?style=for-the-badge" alt="Release">
+  <img src="https://img.shields.io/badge/Release-Final%20Immutable%20Ready-brightgreen?style=for-the-badge" alt="Release">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License">
 </p>
 
@@ -41,16 +41,18 @@ The repo already has real protocol evidence:
 - queue-pressure `cycle_live` closing a real position before `CycleEvent`
 - native staking proof on testnet
 - first real DeFi lending proof via Scallop `deposit -> query -> withdraw`
+- a sealed final release candidate with non-zero Cetus + lending adapter IDs
+- same-package live evidence replayed on that sealed final candidate
 
 The honest current conclusion is:
 
 ```text
 P5 technical closure = yes
-final immutable release readiness = no
+final immutable release readiness = yes
 ```
 
-This is already good enough for technical diligence and early investor conversations.
-It is not honest to present it as fully autonomous across every live leg or as final-release-ready today.
+This is enough for technical diligence, investor conversations, and a truthful final immutable release-readiness claim on testnet.
+It is still not honest to present the repo as fully autonomous across every live leg or as having live perps execution today.
 
 ---
 
@@ -178,11 +180,11 @@ Main modules:
 | `P3` lifecycle / safety tests | `DONE` | local lifecycle and concurrency coverage is in place |
 | `P4` deploy / monitor / release artifacts | `DONE` | deploy, monitor, demo, release docs exist |
 | `P5` live integration evidence | `DONE` | real LP and yield proof paths exist |
-| `R1` final immutable release closure | `OPEN` | final release discipline is still not claimed as complete |
+| `R1` final immutable release closure | `DONE` | sealed final candidate + same-package live evidence + ready dry-run are archived |
 
 The strongest honest one-liner today is:
 
-> We already have real protocol evidence, and the next step is turning those proof paths into a release-disciplined execution product.
+> We now have a sealed final release candidate on testnet with real LP/yield evidence and a clean release-readiness archive.
 
 ---
 
@@ -193,14 +195,14 @@ This section is the single-page answer to: "What is actually proven right now?"
 ### 1) Local correctness headline
 
 - `170 / 170 PASS`
-- `94.85%` overall Move coverage
+- `94.91%` overall Move coverage
 - key module snapshot:
   - `oracle`: `99.61%`
   - `entrypoints`: `95.98%`
   - `queue`: `95.62%`
   - `yield_source`: `97.31%`
   - `vault`: `93.49%`
-  - `cetus_live`: `89.38%`
+  - `cetus_live`: `89.67%`
   - `cetus_amm`: `88.63%`
 
 What it proves:
@@ -272,24 +274,34 @@ What it does not prove:
 
 ### 5) Queue-pressure `cycle_live` close-before-cycle proof
 
-- archived report: `out/reports/cetus_cycle_live_probe_20260308T075620Z.json`
-- package: `0x179c80eb1431016796e4bc9ce62f6da22fc151189b0964e26190f2f8ff0c7981`
-- live tx digest: `3tjoD7afc5Qd1xiAmsF4kVa25Kj522JTZkkMG51fqSL3`
+- archived report: `out/reports/testnet_final_release_v2_pressure_20260309T1228Z.json`
+- manifest: `out/deployments/testnet_final_release_v2.json`
+- package: `0x76ae0e284176075cd0bda8f5b0fd86220ec15f9c21bdf9d02c3910367dca883b`
+- sealed release candidate: `out/deployments/testnet_final_release_v2_final_release_candidate.json`
+- live tx digest: `d5aUyuuNt5W6y6NRXdsrXVMMbrhhQLe117udiEm5pRX`
+- real pool: `0x0b5b1a1bd56f39bb817b194682516dcae4ac0ad7aa5f0fa6af403e909c3e89bd`
+- closed position ID: `0x97b5cd753ada1beca04591ab95254cac3b3e2d800846336a7357ce8241587331`
 
 What it proves:
 
-- under queue pressure, the live path can close the real Cetus position before `CycleEvent`
-- the tx ended with `ready_usdc = treasury_usdc` and `deployed_usdc = 0`, which aligns real-object unwind with accounting state
+- on the sealed final package, queued withdrawals can still force the live path to close the stored real Cetus position before `CycleEvent`
+- the replay ended with `close_event_index = 2` and `cycle_event_index = 4`, so the unwind really happened before accounting finalization
+- two withdraws were queued in the recorded run, not just simulated locally
 
 ### 6) Same-network operator-loop evidence
 
-- archived report: `out/reports/testnet_same_network_autonomy_20260308T125512Z.json`
-- continuation report: `out/reports/testnet_pressure_run_20260308T130434Z.json`
+- archived report: `out/reports/testnet_final_release_v2_same_network_20260309T1214Z.json`
+- package: `0x76ae0e284176075cd0bda8f5b0fd86220ec15f9c21bdf9d02c3910367dca883b`
+- manifest: `out/deployments/testnet_final_release_v2.json`
+- same-package `StakedSui` sync digests:
+  - `sync_live_yield_deposit_entry`: `8YU9rSHPzJ7c9VenUyHxR3USJ36Vnzciqa1enXhfQa55`
+  - `sync_live_yield_hold_entry`: `4wof5bJhkRNDSxtRQFUBmS5mmRUzwGCTmvVFTc3cvZbz`
+  - planner / cycle replay: `CPbmnoyoasqLWB4oxKzVd5JnTkKToxbYq1bquq9BpEL1`
 
 What it proves:
 
-- planner-driven cycles can coexist with a real vault-held LP position
-- queued withdrawal pressure can close a live Cetus position and continue cycling on testnet
+- on the sealed final package, planner-driven cycles can coexist with a real vault-held LP position and a real native staking receipt
+- the planner saw a live Cetus position, live yield metadata, and non-zero queue pressure in the same replay
 
 ### 7) Native staking proof
 
@@ -366,13 +378,13 @@ These statements are not honest yet:
 - fully autonomous same-network execution across every live leg
 - Scallop is already same-network autonomous vault execution
 - perps is nearly done
-- final immutable release is ready now
 
 The cleanest current framing is:
 
 ```text
-high-trust live strategy prototype
-  -> moving toward release-disciplined execution product
+sealed testnet release candidate
+  -> real LP + yield evidence
+  -> explicit guardrails around what is still operator-mediated
 ```
 
 ---
@@ -385,7 +397,7 @@ Current release truth:
 
 ```text
 P5 technical closure = yes
-final immutable release readiness = no
+final immutable release readiness = yes
 ```
 
 What is already done:
@@ -393,20 +405,24 @@ What is already done:
 - deploy / bootstrap / monitor / demo scripts exist
 - `config.seal()` is implemented as a release gate
 - setter behavior after `seal()` is covered by fail-closed tests
-- final release dry-run tooling exists
+- final publish candidate is sealed with non-zero `cetus_pool_id` and non-zero `lending_market_id`
+- same-package live evidence was replayed on the sealed candidate
+- final release dry-run passed with a clean git worktree
 
-Dry-run artifacts:
+Final release artifacts:
 
+- sealed source manifest:
+  - `out/deployments/testnet_final_release_v2.json`
 - normalized release candidate manifest:
-  - `out/deployments/testnet_same_network_autonomy_c_final_release_candidate.json`
+  - `out/deployments/testnet_final_release_v2_final_release_candidate.json`
 - dry-run report:
-  - `out/reports/final_release_dry_run_20260309T102134Z.json`
+  - `out/reports/final_release_dry_run_20260309T1232Z.json`
 
-What still remains before a final immutable release claim:
+What this final immutable release claim means:
 
-- final publish candidate must be replayed in the intended release posture
-- operator / wallet / `AdminCap` responsibility must be frozen into the final release archive
-- final release sign-off must stay aligned with the current external guardrails
+- the release artifact is sealed and archived
+- the release artifact has live LP and live yield evidence on the same package
+- the claim is about immutable release discipline on testnet, not about every future adapter being fully autonomous
 
 ---
 
@@ -429,14 +445,14 @@ This is why the project focuses on proving real object behavior instead of only 
 Latest local validation on `2026-03-09`:
 
 - `cd sui && sui move test --quiet` -> `170 / 170 PASS`
-- `cd sui && sui move test --coverage && sui move coverage summary` -> `94.85%`
+- `cd sui && sui move test --coverage && sui move coverage summary` -> `94.91%`
 - `python scripts/chaos_phase1.py` -> green
 - `wsl bash scripts/formal_verify_wsl.sh -v` -> green
 
 Why the current coverage headline is still honest:
 
 - an older `>= 95%` headline was reached earlier in the repo history
-- the current truth after live-LP expansion is `94.85%`
+- the current truth after the latest verification is `94.91%`
 - the README now keeps the latest verified number instead of reusing stale historical metrics
 
 The important practical point:
