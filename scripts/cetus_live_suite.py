@@ -14,9 +14,12 @@ DEFAULT_QUOTE_PACKAGE_ID = "0xf6730a6d95217bbcdb8606a543724db089293156268ffa3e9d
 DEFAULT_QUOTE_TREASURY_ID = "0xf47517f6bcd6563007da5e88180c11fae105dcfb6d2739c35288e55f714e8dd2"
 DEFAULT_QUOTE_METADATA_ID = "0x646e043cc0f397d75198fe54671c8ad39ef781693e4e8a12c1119d2c08e873b8"
 DEFAULT_QUOTE_TYPE = f"{DEFAULT_QUOTE_PACKAGE_ID}::test_quote::TEST_QUOTE"
-DEFAULT_SDYE_TYPE = "0x96bad4d18461e2becbf0c658ab77f7d8569f6bb8c9ae58cefac1763ff9952c5c::sdye::SDYE"
 DEFAULT_PROBE_MANIFEST = ROOT / "out" / "deployments" / "testnet_cetus_live.json"
 DEFAULT_VAULT_MANIFEST = ROOT / "out" / "deployments" / "testnet_cetus_vault_live.json"
+
+
+def sdye_type(package_id):
+    return f"{package_id}::sdye::SDYE"
 
 
 def run(cmd, cwd=ROOT, env=None):
@@ -131,12 +134,13 @@ def run_vault_live(manifest, quote_coin_id, sdye_coin_id, amount, tick_lower, ti
     package_id = manifest["package_id"]
     vault_id = manifest["vault_id"]
     config_id = manifest["config_id"]
+    current_sdye_type = sdye_type(package_id)
     open_digest, _ = call_json_with_digest([
         "sui", "client", "call",
         "--package", package_id,
         "--module", "cetus_live",
         "--function", "open_position_into_vault_entry",
-        "--type-args", "0x2::sui::SUI", DEFAULT_QUOTE_TYPE, DEFAULT_SDYE_TYPE,
+        "--type-args", "0x2::sui::SUI", DEFAULT_QUOTE_TYPE, current_sdye_type,
         "--args",
         vault_id,
         config_id,
@@ -161,7 +165,7 @@ def run_vault_live(manifest, quote_coin_id, sdye_coin_id, amount, tick_lower, ti
         "--package", package_id,
         "--module", "cetus_live",
         "--function", "close_stored_position_from_vault_entry",
-        "--type-args", "0x2::sui::SUI", DEFAULT_QUOTE_TYPE, DEFAULT_SDYE_TYPE,
+        "--type-args", "0x2::sui::SUI", DEFAULT_QUOTE_TYPE, current_sdye_type,
         "--args",
         vault_id,
         config_id,
@@ -215,13 +219,15 @@ def main():
 
     minted_probe = mint_quote_coin(args.quote_amount, DEFAULT_QUOTE_TREASURY_ID, sender)
     report["steps"].append({"step": "mint_quote_for_probe", **minted_probe})
-    sdye_probe_id, sdye_probe_balance = select_coin_object(DEFAULT_SDYE_TYPE, args.sdye_amount)
+    probe_manifest = json.loads(Path(args.probe_manifest).read_text(encoding="utf-8"))
+    probe_sdye_type = sdye_type(probe_manifest["package_id"])
+    sdye_probe_id, sdye_probe_balance = select_coin_object(probe_sdye_type, args.sdye_amount)
 
     probe_cmd = [
         "python", "scripts/cetus_live_probe.py",
         "--manifest", str(args.probe_manifest),
         "--coin-type-a", DEFAULT_QUOTE_TYPE,
-        "--coin-type-b", DEFAULT_SDYE_TYPE,
+        "--coin-type-b", probe_sdye_type,
         "--coin-a-id", minted_probe["coin_id"],
         "--coin-b-id", sdye_probe_id,
         "--cetus-global-config-id", DEFAULT_CETUS_GLOBAL_CONFIG_ID,
@@ -236,8 +242,9 @@ def main():
 
     minted_vault = mint_quote_coin(args.vault_amount, DEFAULT_QUOTE_TREASURY_ID, sender)
     report["steps"].append({"step": "mint_quote_for_vault_live", **minted_vault})
-    sdye_vault_id, _ = select_coin_object(DEFAULT_SDYE_TYPE, args.vault_amount)
     vault_manifest = ensure_vault_manifest(args.vault_manifest, args.refresh_vault_manifest, args.force_publish_vault, DEFAULT_CETUS_POOL_ID)
+    vault_sdye_type = sdye_type(vault_manifest["package_id"])
+    sdye_vault_id, _ = select_coin_object(vault_sdye_type, args.vault_amount)
     vault_live = run_vault_live(vault_manifest, minted_vault["coin_id"], sdye_vault_id, args.vault_amount, args.tick_lower, args.tick_upper, args.clock_id)
     report["steps"].append({"step": "vault_live", **vault_live})
 

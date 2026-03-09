@@ -42,6 +42,28 @@ def normalize_tick(value):
     return str((value + (1 << 32)) % (1 << 32))
 
 
+def select_sdye_coin_for_live_open(coin_type, minimum_balance, exclude_coin_ids=None):
+    normalized = coin_type.lower()
+    excluded = {coin_id.lower() for coin_id in (exclude_coin_ids or [])}
+    candidates = []
+    for meta, coins in suite.load_balance_groups():
+        if str(meta.get("coinType", "")).lower() != normalized:
+            continue
+        for coin in coins:
+            coin_id = coin.get("coinObjectId", "")
+            balance = int(coin.get("balance", "0"))
+            if not coin_id or coin_id.lower() in excluded or balance < minimum_balance:
+                continue
+            candidates.append((balance, coin_id))
+    if not candidates:
+        raise SystemExit(
+            f"Unable to find owned coin for {coin_type} with balance >= {minimum_balance}"
+            + (" after exclusions" if excluded else "")
+        )
+    candidates.sort()
+    return candidates[0][1], candidates[0][0]
+
+
 def deposit_and_get_share_coin(manifest, deposit_amount, clock_id):
     package_id = manifest["package_id"]
     vault_id = manifest["vault_id"]
@@ -98,15 +120,16 @@ def run_plain_cycle(manifest, spot_price, clock_id):
     return {"digest": digest, "cycle_event": cycle_event.get("parsedJson", {})}
 
 
-def open_live_position(manifest, quote_amount, tick_lower, tick_upper, clock_id):
+def open_live_position(manifest, quote_amount, tick_lower, tick_upper, clock_id, exclude_sdye_coin_ids=None):
+    current_sdye_type = suite.sdye_type(manifest["package_id"])
     quote = suite.mint_quote_coin(quote_amount, suite.DEFAULT_QUOTE_TREASURY_ID, suite.active_address())
-    sdye_coin_id, _ = suite.select_coin_object(suite.DEFAULT_SDYE_TYPE, quote_amount)
+    sdye_coin_id, _ = select_sdye_coin_for_live_open(current_sdye_type, quote_amount, exclude_sdye_coin_ids)
     digest, _ = suite.call_json_with_digest([
         "sui", "client", "call",
         "--package", manifest["package_id"],
         "--module", "cetus_live",
         "--function", "open_position_into_vault_entry",
-        "--type-args", manifest["base_type"], suite.DEFAULT_QUOTE_TYPE, suite.DEFAULT_SDYE_TYPE,
+        "--type-args", manifest["base_type"], suite.DEFAULT_QUOTE_TYPE, current_sdye_type,
         "--args",
         manifest["vault_id"],
         manifest["config_id"],
@@ -132,7 +155,7 @@ def open_live_position(manifest, quote_amount, tick_lower, tick_upper, clock_id)
     }
 
 
-def request_queued_withdraw(manifest, share_coin_id, clock_id):
+def request_queued_withdraw(manifest, share_coin_id, clock_id, require_queued=True):
     digest, _ = suite.call_json_with_digest([
         "sui", "client", "call",
         "--package", manifest["package_id"],
@@ -150,18 +173,19 @@ def request_queued_withdraw(manifest, share_coin_id, clock_id):
     tx = suite.tx_block(digest)
     event = find_event(tx, "::entrypoints::WithdrawRequestedEvent")
     parsed = event.get("parsedJson", {})
-    if not parsed.get("queued", False):
+    if require_queued and not parsed.get("queued", False):
         raise SystemExit("Expected queued withdrawal before cycle_live probe, but withdraw was instant")
     return {"digest": digest, "withdraw_event": parsed}
 
 
 def run_cycle_live(manifest, spot_price, clock_id):
+    current_sdye_type = suite.sdye_type(manifest["package_id"])
     digest, _ = suite.call_json_with_digest([
         "sui", "client", "call",
         "--package", manifest["package_id"],
         "--module", "cetus_live",
         "--function", "cycle_live_entry",
-        "--type-args", manifest["base_type"], suite.DEFAULT_QUOTE_TYPE, suite.DEFAULT_SDYE_TYPE,
+        "--type-args", manifest["base_type"], suite.DEFAULT_QUOTE_TYPE, current_sdye_type,
         "--args",
         manifest["vault_id"],
         manifest["queue_id"],
