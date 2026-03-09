@@ -23,7 +23,10 @@ poc/**/dist/
 /AGENTS.md
 /MEMORY.md
 /RUNBOOK.md
-/提升方案3.TXT
+/IMPROVEMENT_PLAN_3.private.txt
+/PRIVATE_*.md
+/PRIVATE_*.txt
+/TECHNICAL_NOTES.private.md
 
 # Private technical docs (do not push)
 /docs/
@@ -31,7 +34,6 @@ poc/**/dist/
 /DEPLOYMENT_INPUTS.md
 /ECONOMICS.md
 /THREAT_MODEL.md
-/技术文档.md
 
 # Sui Move build artifacts
 /sui/build/

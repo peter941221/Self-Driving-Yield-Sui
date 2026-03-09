@@ -725,6 +725,12 @@ out/      # local manifests / reports
 docs/     # local diligence and release notes
 ```
 
+Public repo hygiene note:
+
+- tracked filenames are kept ASCII-only
+- local planning notes, private diligence drafts, and run artifacts are intentionally gitignored
+- the public tree is meant to stay focused on `sui/`, `scripts/`, `formal/`, and the public top-level docs
+
 ---
 
 ## Reading Order For Diligence
