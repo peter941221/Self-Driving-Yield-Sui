@@ -5,9 +5,6 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=rdQyEShM0vs">
-    <img src="https://img.shields.io/badge/Demo-Video-red?style=for-the-badge&logo=youtube" alt="Demo Video">
-  </a>
   <img src="https://img.shields.io/badge/Platform-Sui%20Move-yellow?style=for-the-badge" alt="Platform">
   <img src="https://img.shields.io/badge/Stage-P5%20Technical%20Closure-brightgreen?style=for-the-badge" alt="Stage">
   <img src="https://img.shields.io/badge/Release-Final%20Immutable%20Ready-brightgreen?style=for-the-badge" alt="Release">
