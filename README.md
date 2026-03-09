@@ -83,17 +83,15 @@ In plain language:
 
 ## Investor Readiness
 
-Short answer:
+Current external positioning:
 
 ```text
-yes, you can start investor conversations now
-but you should pitch this as:
 sealed testnet release candidate
 with real LP + yield evidence
 and explicit operational boundaries
 ```
 
-What is strong enough to show now:
+Why this positioning is already defensible:
 
 - the repo is no longer a design-only strategy doc
 - there is a sealed final candidate on testnet
@@ -102,14 +100,14 @@ What is strong enough to show now:
 - there is one real DeFi lending proof via Scallop
 - there is explicit release discipline, archive discipline, and operator tooling
 
-What you should not say yet:
+What should not be implied:
 
 - fully autonomous across every live leg
 - mainnet-ready launch next week
 - perps is already live
 - every adapter is already same-network automated
 
-The best current investor framing is:
+Recommended diligence summary:
 
 ```text
 We already proved the hard part:
