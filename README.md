@@ -760,6 +760,7 @@ If you want deeper public detail after that:
 - `reference/CHAOS_MATRIX.md`
 - `scripts/README.md`
 - `formal/README.md`
+- `poc/README.md`
 - `formal/PROOF_MATRIX.md`
 - `poc/economics/README.md`
 - `poc/aftermath-perps/README.md`

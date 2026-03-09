@@ -1,24 +1,34 @@
 # Economics PoC — Sui Hedged Yield Simulator
 
-This PoC is a **math/economics simulator** for the Sui version of Self-Driving Yield.
+This PoC is a public **math/economics simulator** for the Sui version of Self-Driving Yield.
+
+## Purpose
 
 It answers:
+
 - Is the current "Lending + CLMM LP + Perp Hedge (+ optional LST carry)" design *directionally* viable?
 - How sensitive is net APY to: `LP fees`, `range width`, `funding`, `rebalance costs`?
 
-## What This Is (and Isn't)
+## What Lives Here
 
-✅ Useful for:
+- `sui_hedged_lp_sim.py`
+  - a directional simulator for return shape and sensitivity analysis
+
+## How To Use It
+
+Useful for:
+
 - sanity checking parameter ranges (investor-friendly)
 - comparing regimes (CALM / NORMAL / STORM)
 - identifying which variable dominates returns (fees vs funding vs IL)
 
-❌ Not a real execution backtest:
+Not a real execution backtest:
+
 - no on-chain fills / slippage curve
 - no funding history (we model funding as regime-dependent APR)
 - LP fee APR is a proxy (not from Cetus on-chain data yet)
 
-## Run
+Run:
 
 ```bash
 python poc/economics/sui_hedged_lp_sim.py --days 180
@@ -46,3 +56,8 @@ In code we:
 4. Short SUI perps against the start-of-day SUI exposure (LST + LP token0 amount).
 5. Compute net daily return, APY, Sharpe, max drawdown.
 
+## Boundary
+
+This PoC is for directional economics only.
+
+It does not prove live protocol execution, sealed release discipline, or production-ready hedge automation.

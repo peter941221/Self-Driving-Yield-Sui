@@ -1,8 +1,27 @@
 # Aftermath Perps PoC (Sui Testnet)
 
-This PoC proves we can build and execute an on-chain Perps transaction (create perps account, deposit collateral, open + close a position) using Aftermath's SDK on **Sui testnet**.
+This PoC explores whether a perps transaction flow can be built with Aftermath's SDK on **Sui testnet**.
 
-## What It Does
+## Purpose
+
+Its purpose is feasibility work around:
+
+- creating a perps account
+- depositing collateral
+- opening and closing a small position
+
+## What Lives Here
+
+- `poc.ts`
+  - a protocol-specific SDK experiment around Aftermath perps on testnet
+- `patch-aftermath-sdk.mjs`
+  - local compatibility patching for the prototype environment
+- `package.json`
+  - PoC runtime entrypoint and dependencies
+
+## How To Use It
+
+What it does:
 
 - Creates a fresh ephemeral keypair (no secrets stored on disk)
 - Requests testnet SUI from faucet (for gas + SUI collateral)
@@ -12,7 +31,7 @@ This PoC proves we can build and execute an on-chain Perps transaction (create p
 - Places a tiny market **short** order on the first available market
 - Closes the position with a reduce-only market order
 
-## Run
+Run:
 
 ```bash
 cd poc/aftermath-perps
@@ -29,7 +48,9 @@ set SUI_SECRET_KEY=suiprivkey1...
 pnpm run poc
 ```
 
-## Notes
+## Boundary
 
 - This uses **testnet** only.
 - Faucet rate limiting is common; the script uses exponential backoff.
+- This PoC is not part of the sealed release claim.
+- Current public repo truth is still that Aftermath perps is blocked as a sign-off-quality live leg.
