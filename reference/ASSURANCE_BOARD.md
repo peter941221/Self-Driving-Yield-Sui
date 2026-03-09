@@ -10,8 +10,8 @@ Last verified: `2026-03-09`
 - Formal suite: green under WSL/Linux runner
 - Chaos Phase 1: green locally
 - CI pipeline: `move-tests` + `formal` + `chaos`
-- Current delivery phase: `P4 done -> P5 live testnet integration`
-- Current local coverage headline: `94.85%`
+- Current delivery phase: `P5 complete -> R1 sealed testnet release candidate archived`
+- Current local coverage headline: `94.91%`
 
 ## Formal Layer
 
@@ -44,23 +44,19 @@ See also:
   - Cetus real-object `open -> close` proof on testnet
   - vault-held Cetus Position ownership across transactions on testnet
   - queue-pressure `cycle_live` proof that closes the live Position before `CycleEvent`
-  - same-network testnet operator loop proving planner-driven `cycle()` + real vault-held Cetus live position + real native staking yield sync on one network
-  - real pressure run proving queued withdrawal pressure can close a live Cetus position and continue cycling without failed tx evidence in the recorded run
-- Latest `cycle_live` evidence:
-  - manifest: `out/deployments/testnet_cetus_cycle_live.json`
-  - report: `out/reports/cetus_cycle_live_probe_20260308T075620Z.json`
-  - tx digest: `3tjoD7afc5Qd1xiAmsF4kVa25Kj522JTZkkMG51fqSL3`
-  - key result: `CetusPositionClosedEvent` index `2` landed before `CycleEvent` index `3`
-- Latest same-network autonomy evidence:
-  - manifest: `out/deployments/testnet_same_network_autonomy_c.json`
-  - report: `out/reports/testnet_same_network_autonomy_20260308T125512Z.json`
-  - key result: one testnet operator loop synced an existing real `StakedSui` receipt into vault live-yield bookkeeping, then a planner-driven `cycle()` emitted `StrategyPlannedEvent` with both `live_cetus_position_present = true` and `live_yield_position_present = true`
-- Latest pressure evidence:
-  - manifest: `out/deployments/testnet_same_network_autonomy_c.json`
-  - report: `out/reports/testnet_pressure_run_20260308T130434Z.json`
-  - key result: queued withdrawal tx `Hc8PJBj84gzh4T3Bq9wVHPJQ6WVvtHxsGnMbzCnydNHC` followed by live pressure tx `HkYqBFYVa5WfCn41U2jMJLMZDRhppnSf4Fv8d86Q1JA4`, where `CetusPositionClosedEvent` landed before `CycleEvent` and the run continued with four more green `cycle()` calls
-- Remaining P5 gaps:
-  - `vault::cycle()` now has a unified planner and same-network operator-loop evidence, but direct same-tx native execution of every live leg still depends on protocol-specific runtime entrypoints
+  - sealed final candidate replay proving planner-driven `cycle()` + real vault-held Cetus live position + real native staking yield sync on one package
+  - sealed final pressure replay proving queued withdrawal pressure can close a live Cetus position before `CycleEvent`
+- Latest sealed same-package evidence:
+  - manifest: `out/deployments/testnet_final_release_v2.json`
+  - report: `out/reports/testnet_final_release_v2_same_network_20260309T1214Z.json`
+  - key result: one sealed package replay observed `live_cetus_position_present = true`, `live_yield_position_present = true`, and non-zero queue pressure together
+- Latest sealed pressure evidence:
+  - manifest: `out/deployments/testnet_final_release_v2.json`
+  - report: `out/reports/testnet_final_release_v2_pressure_20260309T1228Z.json`
+  - tx digest: `d5aUyuuNt5W6y6NRXdsrXVMMbrhhQLe117udiEm5pRX`
+  - key result: `CetusPositionClosedEvent` landed before `CycleEvent` on the sealed candidate
+- Remaining post-release gaps:
+  - direct same-tx native execution of every live leg still depends on protocol-specific runtime entrypoints
   - live adapter depth is still strongest on Cetus + native staking bookkeeping; external lending/perps remain shallower
   - Scallop is still real yield evidence, but not same-network vault execution
   - Aftermath perps remains blocked on testnet and is not a sign-off-quality live leg yet
@@ -71,16 +67,16 @@ See also:
   - the repo has real archived live evidence beyond local tests
   - the repo has stronger LP/live-object depth than an accounting-only prototype
   - the repo now has confidence-aware risk and guarded restore logic in core state transitions
-  - the repo can support `P5 technical sign-off discussion`
+  - the repo can support technical diligence and a truthful sealed testnet release-readiness claim
 - What this board does NOT prove:
-  - final immutable release readiness
   - fully autonomous same-network execution across every live leg
   - a working Aftermath perps leg on testnet
+  - immediate mainnet launch readiness
 
 ## Chaos Layer
 
 - Runner: `python scripts/chaos_phase1.py`
-- Current green scope: `12` deterministic local experiments
+- Current green scope: `16` deterministic local experiments
 - Highlights:
   - Scallop bridge blocker statuses
   - bridge happy-path replay
@@ -89,6 +85,10 @@ See also:
   - stale-cycle alert
   - `OnlyUnwind` / reserve-pressure alert surfacing
   - `used_flash` info surfacing
+  - structured monitor JSON payload validation
+  - keeper low-gas dry-run blocking
+  - standalone external price fetch normalization
+  - keeper external-price dry-run readiness
 
 See also:
 

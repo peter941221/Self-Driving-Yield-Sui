@@ -694,6 +694,10 @@ subst X: /D
 ## Repository Layout
 
 ```text
+.github/
+├─ workflows/
+│  └─ formal.yml
+
 sui/
 ├─ Move.toml
 ├─ sources/
@@ -721,15 +725,24 @@ scripts/
 └─ aftermath_perps_probe.py
 
 formal/
-out/      # local manifests / reports
-docs/     # local diligence and release notes
+├─ PROOF_MATRIX.md
+└─ sources/
+
+reference/
+├─ ASSURANCE_BOARD.md
+└─ CHAOS_MATRIX.md
+
+poc/
+├─ economics/
+└─ aftermath-perps/
 ```
 
 Public repo hygiene note:
 
 - tracked filenames are kept ASCII-only
 - local planning notes, private diligence drafts, and run artifacts are intentionally gitignored
-- the public tree is meant to stay focused on `sui/`, `scripts/`, `formal/`, and the public top-level docs
+- the public tree is meant to stay focused on `sui/`, `scripts/`, `formal/`, `reference/`, and `README.md`
+- local-only ignored paths such as `out/`, `docs/`, `AGENTS.md`, `MEMORY.md`, and `RUNBOOK.md` are intentionally omitted from the public repository view
 
 ---
 
@@ -737,26 +750,26 @@ Public repo hygiene note:
 
 If you only read one file, read this README.
 
-If you want deeper detail after that:
+If you want deeper public detail after that:
 
-- `ASSURANCE_BOARD.md`
-- `docs/P5_CLOSURE.md`
-- `docs/INVESTOR_STATUS_BRIEF.md`
-- `docs/EVIDENCE_BOARD.md`
-- `docs/EXTERNAL_GUARDRAILS.md`
-- `docs/FINAL_RELEASE_RUNBOOK.md`
+- `reference/ASSURANCE_BOARD.md`
+- `reference/CHAOS_MATRIX.md`
+- `formal/PROOF_MATRIX.md`
+- `poc/economics/README.md`
+- `poc/aftermath-perps/README.md`
 
 Suggested reading by audience:
 
 - non-technical investor
   - this README
-  - `docs/INVESTOR_STATUS_BRIEF.md`
+  - `reference/ASSURANCE_BOARD.md`
 - technical investor / auditor
   - this README
-  - `ASSURANCE_BOARD.md`
-  - `docs/EVIDENCE_BOARD.md`
-  - `docs/P5_CLOSURE.md`
-  - `docs/FINAL_RELEASE_RUNBOOK.md`
+  - `reference/ASSURANCE_BOARD.md`
+  - `reference/CHAOS_MATRIX.md`
+  - `formal/PROOF_MATRIX.md`
+
+Private local diligence packs may exist during active development, but they are intentionally not part of the public Git tree.
 
 ---
 

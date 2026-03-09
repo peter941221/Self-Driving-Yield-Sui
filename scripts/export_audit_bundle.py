@@ -17,11 +17,9 @@ DEFAULT_REPORTS = [
 ]
 DEFAULT_DOCS = [
     ROOT / "README.md",
-    ROOT / "ASSURANCE_BOARD.md",
-    ROOT / "RUNBOOK.md",
-    ROOT / "docs" / "P5_CLOSURE.md",
-    ROOT / "docs" / "EVIDENCE_BOARD.md",
-    ROOT / "docs" / "FINAL_RELEASE_RUNBOOK.md",
+    ROOT / "reference" / "ASSURANCE_BOARD.md",
+    ROOT / "reference" / "CHAOS_MATRIX.md",
+    ROOT / "formal" / "PROOF_MATRIX.md",
 ]
 
 

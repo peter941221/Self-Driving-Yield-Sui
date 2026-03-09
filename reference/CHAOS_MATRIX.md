@@ -8,6 +8,7 @@ This matrix summarizes the current local `scripts/chaos_phase1.py` suite.
 - Current style: local deterministic fault injection
 - No funded chain mutation required
 - Main focus: operator blockers, report discipline, and monitor false-green prevention
+- Current size: `16` deterministic experiments
 
 ## Matrix
 
@@ -25,6 +26,10 @@ This matrix summarizes the current local `scripts/chaos_phase1.py` suite.
 | `monitor_only_unwind_pressure` | `monitor_sui.py` | synthetic `CycleEvent` with `OnlyUnwind` + queue pressure | surfaces HIGH/CRIT/WARN alerts |
 | `monitor_stale_cycle` | `monitor_sui.py` | synthetic stale `CycleEvent` timestamp | surfaces stale-cycle HIGH alert |
 | `monitor_used_flash_info` | `monitor_sui.py` | synthetic `CycleEvent` with `used_flash = true` | surfaces flash-path INFO alert |
+| `monitor_json_payload` | `monitor_sui.py` | synthetic healthy `CycleEvent` in `--json` mode | returns structured metrics with no false alert |
+| `keeper_blocked_low_gas` | `keeper_daemon.py` | fake CLI returns insufficient gas | stays blocked and never attempts execution |
+| `fetch_http_json_price` | `fetch_spot_price.py` | local file-backed HTTP JSON price payload | normalizes external price into keeper integer format |
+| `keeper_external_price_source` | `keeper_daemon.py` | local external price source + healthy gas | reaches `dry_run_ready` with external spot price |
 
 ## Still Deferred
 
@@ -32,4 +37,3 @@ This matrix summarizes the current local `scripts/chaos_phase1.py` suite.
 - live object/package mismatch experiments for Cetus paths
 - deeper synthetic failures for `deploy_sui.py`
 - broader protocol-specific chaos around probe scripts beyond current high-value blockers
-
