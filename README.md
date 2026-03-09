@@ -462,6 +462,36 @@ The important practical point:
 
 ---
 
+## Operator Ops Layer
+
+The sealed release artifact is now complemented by a non-invasive ops layer under `scripts/`.
+
+These scripts do not mutate the published Move package and do not reopen release closure by themselves.
+
+They exist to make operation, diligence handoff, and queue-pressure response more concrete:
+
+- `python scripts/monitor_sui.py --manifest out/deployments/testnet_final_release_v2.json --json`
+  - emits structured `severity`, `action_hint`, `queue_pressure_bps`, `reserve_gap_usdc`, and `stale_cycle_minutes`
+- `python scripts/keeper_daemon.py --manifest out/deployments/testnet_final_release_v2.json --once --spot-price 1000000000`
+  - polls the structured monitor payload, applies local lockfile + gas checks, and decides whether `cycle_entry` or `cycle_live_entry` would be triggered
+  - default mode is dry-run; add `--execute` only when the operator intends to submit real transactions
+- `python scripts/fetch_spot_price.py --source coingecko --coingecko-id sui`
+  - fetches a normalized keeper-ready integer spot price from `CoinGecko`, `Binance`, or a custom HTTP JSON endpoint
+- `python scripts/keeper_daemon.py --manifest out/deployments/testnet_final_release_v2.json --once --price-source coingecko --coingecko-id sui`
+  - lets the keeper use an external price feed instead of a hand-entered `--spot-price`
+- `python scripts/reserve_policy_replay.py --json`
+  - replays the current reserve policy against synthetic pressure scenarios without touching chain state
+- `python scripts/export_audit_bundle.py --zip`
+  - copies the current manifest, reports, and diligence docs into one local audit bundle with hashes
+
+What this means:
+
+- the sealed package remains unchanged
+- operator liveness and evidence export are now less ad hoc
+- investor / auditor handoff no longer depends on manually collecting files one by one
+
+---
+
 ## Quickstart
 
 Build and test:
@@ -488,6 +518,12 @@ Deploy and smoke:
 python scripts/deploy_sui.py --base-type 0x2::sui::SUI --min-cycle-interval-ms 0 --min-snapshot-interval-ms 0
 python scripts/testnet_cycle_smoke.py --manifest out/deployments/testnet_smoke.json
 python scripts/monitor_sui.py --manifest out/deployments/testnet_smoke.json
+python scripts/monitor_sui.py --manifest out/deployments/testnet_final_release_v2.json --json
+python scripts/keeper_daemon.py --manifest out/deployments/testnet_final_release_v2.json --once --spot-price 1000000000
+python scripts/fetch_spot_price.py --source coingecko --coingecko-id sui
+python scripts/keeper_daemon.py --manifest out/deployments/testnet_final_release_v2.json --once --price-source coingecko --coingecko-id sui
+python scripts/reserve_policy_replay.py --json
+python scripts/export_audit_bundle.py --zip
 ```
 
 Live proof probes:
@@ -531,6 +567,10 @@ scripts/
 ├─ deploy_sui.py
 ├─ testnet_cycle_smoke.py
 ├─ monitor_sui.py
+├─ fetch_spot_price.py
+├─ keeper_daemon.py
+├─ reserve_policy_replay.py
+├─ export_audit_bundle.py
 ├─ cetus_live_probe.py
 ├─ cetus_cycle_live_probe.py
 ├─ cetus_live_suite.py

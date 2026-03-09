@@ -414,6 +414,251 @@ def experiment_monitor_used_flash(tmp_dir: Path):
     )
 
 
+def experiment_monitor_json_payload(tmp_dir: Path):
+    cycle_event = {
+        "type": "0xpackage::entrypoints::CycleEvent",
+        "timestampMs": str(int(datetime.now(timezone.utc).timestamp() * 1000)),
+        "parsedJson": {
+            "spot_price": 100000,
+            "moved_usdc": 0,
+            "bounty_usdc": 0,
+            "regime_code": 1,
+            "only_unwind": False,
+            "safe_cycles_since_storm": 2,
+            "treasury_usdc": 500,
+            "deployed_usdc": 500,
+            "ready_usdc": 200,
+            "pending_usdc": 150,
+            "used_flash": False,
+            "total_assets": 1000,
+        },
+    }
+    server, rpc_url = start_rpc_server(responses=[
+        {"jsonrpc": "2.0", "id": 1, "result": {"data": [cycle_event]}},
+        {"jsonrpc": "2.0", "id": 1, "result": {"data": []}},
+    ])
+    try:
+        manifest_path = tmp_dir / "monitor_json_payload" / "manifest.json"
+        write_json(manifest_path, base_manifest("testnet"))
+        result = run_cmd([
+            sys.executable,
+            "scripts/monitor_sui.py",
+            "--manifest",
+            str(manifest_path),
+            "--rpc-url",
+            rpc_url,
+            "--limit",
+            "5",
+            "--json",
+        ])
+        try:
+            payload = json.loads(result.stdout)
+        except Exception:
+            payload = {}
+        passed = (
+            result.returncode == 0
+            and payload.get("summary", {}).get("status") == "ok"
+            and payload.get("metrics", {}).get("queue_pressure_bps") == 3500
+            and payload.get("metrics", {}).get("reserve_gap_usdc") == 0
+        )
+        return {
+            "name": "monitor_json_payload",
+            "command": "monitor_sui.py --json",
+            "expected_status": "structured_payload",
+            "actual_status": "pass" if passed else "fail",
+            "pass": passed,
+            "returncode": result.returncode,
+            "stdout": tail(result.stdout),
+            "stderr": tail(result.stderr),
+            "artifact": str(manifest_path),
+        }
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def experiment_keeper_blocked_low_gas(tmp_dir: Path):
+    name = "keeper_blocked_low_gas"
+    fake_bin = tmp_dir / name / "fakebin"
+    make_fake_sui_bin(
+        fake_bin,
+        active_env="testnet",
+        active_address="0xkeeper",
+        gas_payload={"data": [{"gasCoinId": "0xgas", "mistBalance": "1000000"}]},
+    )
+    env = os.environ.copy()
+    env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+    env["PATHEXT"] = ".BAT;.CMD;.EXE;.COM"
+    env["SUI_BIN"] = fake_sui_executable(fake_bin)
+    server, rpc_url = start_rpc_server(responses=[
+        {"jsonrpc": "2.0", "id": 1, "result": {"data": [{
+            "type": "0xpackage::entrypoints::CycleEvent",
+            "timestampMs": str(int(datetime.now(timezone.utc).timestamp() * 1000)),
+            "parsedJson": {
+                "spot_price": 100000,
+                "moved_usdc": 0,
+                "bounty_usdc": 0,
+                "regime_code": 1,
+                "only_unwind": False,
+                "safe_cycles_since_storm": 2,
+                "treasury_usdc": 500,
+                "deployed_usdc": 500,
+                "ready_usdc": 120,
+                "pending_usdc": 80,
+                "used_flash": False,
+                "total_assets": 1000,
+            },
+        }]}},
+        {"jsonrpc": "2.0", "id": 1, "result": {"data": []}},
+    ])
+    try:
+        manifest_path = tmp_dir / name / "manifest.json"
+        log_path = tmp_dir / name / "keeper.jsonl"
+        write_json(manifest_path, base_manifest("testnet"))
+        result = run_cmd([
+            sys.executable,
+            "scripts/keeper_daemon.py",
+            "--manifest",
+            str(manifest_path),
+            "--rpc-url",
+            rpc_url,
+            "--once",
+            "--spot-price",
+            "100000",
+            "--log-out",
+            str(log_path),
+        ], env=env)
+        try:
+            payload = json.loads(result.stdout)
+        except Exception:
+            payload = {}
+        passed = payload.get("status") == "blocked_low_gas" and "queue_pressure" in payload.get("reasons", [])
+        return {
+            "name": name,
+            "command": "keeper_daemon.py",
+            "expected_status": "blocked_low_gas",
+            "actual_status": "pass" if passed else "fail",
+            "pass": passed,
+            "returncode": result.returncode,
+            "stdout": tail(result.stdout),
+            "stderr": tail(result.stderr),
+            "artifact": str(log_path),
+        }
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def experiment_fetch_http_json_price(tmp_dir: Path):
+    name = "fetch_http_json_price"
+    price_path = tmp_dir / name / "price.json"
+    write_json(price_path, {"data": {"price": 1.2345}})
+    result = run_cmd([
+        sys.executable,
+        "scripts/fetch_spot_price.py",
+        "--source",
+        "http-json",
+        "--http-json-url",
+        price_path.resolve().as_uri(),
+        "--http-json-path",
+        "data.price",
+    ])
+    passed = result.returncode == 0 and result.stdout.strip() == "1234500000"
+    return {
+        "name": name,
+        "command": "fetch_spot_price.py",
+        "expected_status": "1234500000",
+        "actual_status": result.stdout.strip(),
+        "pass": passed,
+        "returncode": result.returncode,
+        "stdout": tail(result.stdout),
+        "stderr": tail(result.stderr),
+        "artifact": str(price_path),
+    }
+
+
+def experiment_keeper_external_price_source(tmp_dir: Path):
+    name = "keeper_external_price_source"
+    fake_bin = tmp_dir / name / "fakebin"
+    make_fake_sui_bin(
+        fake_bin,
+        active_env="testnet",
+        active_address="0xkeeper",
+        gas_payload={"data": [{"gasCoinId": "0xgas", "mistBalance": "5000000000"}]},
+    )
+    env = os.environ.copy()
+    env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+    env["PATHEXT"] = ".BAT;.CMD;.EXE;.COM"
+    env["SUI_BIN"] = fake_sui_executable(fake_bin)
+    price_path = tmp_dir / name / "price.json"
+    manifest_path = tmp_dir / name / "manifest.json"
+    log_path = tmp_dir / name / "keeper.jsonl"
+    write_json(price_path, {"data": {"price": 1.015}})
+    write_json(manifest_path, {**base_manifest("testnet"), "cetus_pool_id": "0x0", "config": {"cetus_pool_id": "0x0"}})
+    server, rpc_url = start_rpc_server(responses=[
+        {"jsonrpc": "2.0", "id": 1, "result": {"data": [{
+            "type": "0xpackage::entrypoints::CycleEvent",
+            "timestampMs": str(int(datetime.now(timezone.utc).timestamp() * 1000)),
+            "parsedJson": {
+                "spot_price": 100000,
+                "moved_usdc": 0,
+                "bounty_usdc": 0,
+                "regime_code": 1,
+                "only_unwind": False,
+                "safe_cycles_since_storm": 2,
+                "treasury_usdc": 500,
+                "deployed_usdc": 500,
+                "ready_usdc": 120,
+                "pending_usdc": 80,
+                "used_flash": False,
+                "total_assets": 1000,
+            },
+        }]}},
+        {"jsonrpc": "2.0", "id": 1, "result": {"data": []}},
+    ])
+    try:
+        result = run_cmd([
+            sys.executable,
+            "scripts/keeper_daemon.py",
+            "--manifest",
+            str(manifest_path),
+            "--rpc-url",
+            rpc_url,
+            "--once",
+            "--price-source",
+            "http-json",
+            "--http-json-url",
+            price_path.resolve().as_uri(),
+            "--http-json-path",
+            "data.price",
+            "--log-out",
+            str(log_path),
+        ], env=env)
+        try:
+            payload = json.loads(result.stdout)
+        except Exception:
+            payload = {}
+        passed = (
+            payload.get("status") == "dry_run_ready"
+            and payload.get("price_source") == "http-json"
+            and payload.get("spot_price") == 1015000000
+        )
+        return {
+            "name": name,
+            "command": "keeper_daemon.py --price-source http-json",
+            "expected_status": "dry_run_ready",
+            "actual_status": payload.get("status", "parse_failed"),
+            "pass": passed,
+            "returncode": result.returncode,
+            "stdout": tail(result.stdout),
+            "stderr": tail(result.stderr),
+            "artifact": str(log_path),
+        }
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run local chaos Phase 1 experiments against blocker/reporting/operator safety paths")
     parser.add_argument("--report-out", default="")
@@ -440,6 +685,10 @@ def main():
         experiment_monitor_pressure(tmp_dir),
         experiment_monitor_stale_cycle(tmp_dir),
         experiment_monitor_used_flash(tmp_dir),
+        experiment_monitor_json_payload(tmp_dir),
+        experiment_keeper_blocked_low_gas(tmp_dir),
+        experiment_fetch_http_json_price(tmp_dir),
+        experiment_keeper_external_price_source(tmp_dir),
     ]
 
     passed = sum(1 for item in results if item["pass"])
