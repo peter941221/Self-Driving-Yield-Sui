@@ -1,7 +1,7 @@
 # Self-Driving Yield Engine (Sui Move)
 
 <p align="center">
-  <strong>Autonomous yield routing, queue-aware liquidity, and regime-driven risk control on Sui.</strong>
+  <strong>Queue-aware, regime-driven treasury execution on Sui with real protocol evidence.</strong>
 </p>
 
 <p align="center">
@@ -9,25 +9,76 @@
     <img src="https://img.shields.io/badge/Demo-Video-red?style=for-the-badge&logo=youtube" alt="Demo Video">
   </a>
   <img src="https://img.shields.io/badge/Platform-Sui%20Move-yellow?style=for-the-badge" alt="Platform">
-  <img src="https://img.shields.io/badge/Stage-P5%20Live%20Integration-brightgreen?style=for-the-badge" alt="Stage">
-  <img src="https://img.shields.io/badge/Sui%20Framework-testnet%20%40%204e8aa9e-blue?style=for-the-badge" alt="Sui Framework">
+  <img src="https://img.shields.io/badge/Stage-P5%20Technical%20Closure-brightgreen?style=for-the-badge" alt="Stage">
+  <img src="https://img.shields.io/badge/Release-Final%20Closure%20Open-orange?style=for-the-badge" alt="Release">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License">
 </p>
 
+Last verified: `2026-03-09`
+
 ---
 
-## What This Project Does
+## TL;DR
 
-`Self-Driving Yield` is a **generic Sui Move vault** that:
+`Self-Driving Yield` is a Sui-native shared vault for treasury and yield management.
 
-- accepts a base asset `Coin<BASE>`
-- mints `SDYE` shares
-- samples price snapshots and computes a volatility regime
-- rebalances among LP / yield / hedge buckets
-- processes queued withdrawals with bounded caller bounty
-- degrades into `OnlyUnwind` during stress and restores only after safe cycles
+It is designed to:
 
-In plain English:
+- accept a base asset `Coin<BASE>`
+- mint `SDYE` shares
+- classify market regime from oracle snapshots
+- reserve liquidity for queued withdrawals
+- rebalance across LP / yield / hedge buckets
+- degrade into `OnlyUnwind` under stress and restore only after safe cycles
+
+The important point is not the design alone.
+
+The repo already has real protocol evidence:
+
+- real testnet lifecycle smoke
+- real Cetus external-object `open -> close`
+- a shared vault holding a real Cetus `Position` across transactions
+- queue-pressure `cycle_live` closing a real position before `CycleEvent`
+- native staking proof on testnet
+- first real DeFi lending proof via Scallop `deposit -> query -> withdraw`
+
+The honest current conclusion is:
+
+```text
+P5 technical closure = yes
+final immutable release readiness = no
+```
+
+This is already good enough for technical diligence and early investor conversations.
+It is not honest to present it as fully autonomous across every live leg or as final-release-ready today.
+
+---
+
+## Why This Exists
+
+Most onchain vaults optimize only for yield.
+
+This repo is trying to optimize for:
+
+```text
+yield
+  + liquidity safety
+  + queue survival
+  + explicit risk mode transitions
+  + auditable evidence of what has actually been proven
+```
+
+The target user is not retail-first.
+
+The current customer hypothesis is:
+
+- protocol treasuries
+- onchain operators managing idle balances
+- teams that care about queue pressure and unwind discipline
+
+---
+
+## What The System Does
 
 ```text
 [Deposit BASE]
@@ -38,122 +89,38 @@ In plain English:
       v
 [Permissionless cycle()]
       |
-      +--> [Read oracle snapshots]
-      +--> [Pick regime: CALM / NORMAL / STORM]
-      +--> [Reserve liquidity for withdrawals]
-      +--> [Rebalance LP / Yield / Hedge]
-      +--> [Pay bounded bounty]
+      +--> read oracle snapshots
+      +--> classify CALM / NORMAL / STORM
+      +--> reserve for queued withdrawals
+      +--> rebalance LP / Yield / Hedge buckets
+      +--> pay bounded caller bounty
       |
       v
-[Users redeem instantly or via queue -> claim()]
+[Users redeem instantly or queue -> later claim()]
 ```
 
----
-
-## Why It Exists
-
-Most on-chain vaults optimize only for yield. This one optimizes for **yield + liquidity + survivability**.
+Risk mode behavior:
 
 ```text
-                    +---------------------------+
-                    |  Self-Driving Yield Vault |
-                    +-------------+-------------+
-                                  |
-         +------------------------+------------------------+
-         |                        |                        |
-         v                        v                        v
- [Yield Seeking]           [Liquidity Safety]        [Risk Control]
- LP / lending / carry      queue reserve / unwind     regime + OnlyUnwind
-```
-
----
-
-## Core Flow
-
-### 1) User Flow
-
-```text
-(User)
+[Normal]
    |
    v
-[deposit(BASE)] ---> [Vault treasury]
-   |                      |
-   |                      v
-   |                [cycle() decides allocation]
-   |                      |
-   v                      v
-[receive SDYE]      [LP / Yield / Hedge buckets]
+[Stress / deviation / safety trigger]
    |
    v
-[request_withdraw(SDYE)]
-   |
-   +--> treasury enough? ---- yes ---> [instant redeem]
-   |
-   no
-   |
-   v
-[queue request] --> [cycle() unwinds] --> [claim(BASE)]
-```
-
-### 2) Regime Flow
-
-```text
-[Spot snapshots]
-      |
-      v
-[Oracle TWAP + volatility]
-      |
-      v
-{vol < 1% ?}
-   | yes
-   v
-[CALM]
-   |
-   +--> LP 40% / Yield 57% / Buffer 3%
-   |
-   no
-   |
-   v
-{vol < 3% ?}
-   | yes
-   v
-[NORMAL]
-   |
-   +--> LP 60% / Yield 37% / Buffer 3%
-   |
-   no
-   |
-   v
-[STORM]
-   |
-   +--> LP 80% / Yield 17% / Buffer 3%
-```
-
-### 3) Risk Mode Flow
-
-```text
-[Normal operation]
-      |
-      v
-[Storm / deviation / safety trigger]
-      |
-      v
 [OnlyUnwind]
-      |
-      +--> can reduce exposure
-      +--> cannot re-risk
-      |
-      v
-[Safe cycle #1]
-      |
-      v
-[Still OnlyUnwind]
-      |
-      v
-[Safe cycle #2]
-      |
-      v
-[Restore Normal]
+   |
+   +--> can reduce exposure
+   +--> cannot re-risk
+   |
+   v
+[safe cycle #1]
+   |
+   v
+[safe cycle #2]
+   |
+   v
+[restore normal]
 ```
 
 ---
@@ -163,7 +130,7 @@ Most on-chain vaults optimize only for yield. This one optimizes for **yield + l
 ```text
                  +----------------------------------+
                  |     entrypoints::Vault<BASE>     |
-                 |        (shared object)           |
+                 |        shared object             |
                  +----------------+-----------------+
                                   |
           +-----------------------+------------------------+
@@ -171,99 +138,317 @@ Most on-chain vaults optimize only for yield. This one optimizes for **yield + l
           v                       v                        v
 +-------------------+   +-------------------+   +-------------------+
 | vault::VaultState |   | oracle::Oracle    |   | queue::Withdrawal |
-| assets / shares   |   | TWAP / regime     |   | pending / ready   |
-| risk mode         |   | samples / vol     |   | locked shares     |
+| shares / assets   |   | snapshots / vol   |   | pending / ready   |
+| risk mode         |   | regime            |   | locked shares     |
 +---------+---------+   +---------+---------+   +---------+---------+
           |                       |                        |
           +-----------------------+------------------------+
                                   |
                                   v
                   +---------------+----------------+
-                  |  adapters::cetus / lending /   |
-                  |  perps / rebalancer (P2)       |
+                  | adapters::cetus / lending /    |
+                  | perps / flash / live helpers   |
                   +---------------+----------------+
                                   |
                                   v
                     +-------------+-------------+
-                    |  accounting buckets       |
-                    |  LP / Yield / Hedge       |
+                    | LP / Yield / Hedge buckets|
                     +---------------------------+
 ```
 
----
-
-## Module Map
+Main modules:
 
 | Module | Responsibility |
 |---|---|
 | `vault.move` | share accounting, treasury accounting, risk mode, cycle core |
-| `oracle.move` | snapshots, TWAP, volatility regime |
-| `queue.move` | FIFO withdrawal queue, ready reserve, ownership checks |
-| `entrypoints.move` | shared-object entry surface for deposit / withdraw / claim / cycle |
-| `config.move` | operator parameters, adapter IDs, seal switch, config-level event |
-| `adapters/*.move` | accounting wrappers for Cetus / lending / perps / flash rebalance |
-| `entrypoints.move` + `config.move` events | deposit / withdraw / claim / cycle / config-seal monitoring events |
+| `oracle.move` | snapshots, volatility, regime classification |
+| `queue.move` | FIFO withdrawal queue, ready reserve, claim flow |
+| `entrypoints.move` | shared-object deposit / withdraw / claim / cycle entry surface |
+| `config.move` | operator parameters, adapter IDs, `seal()` release gate |
+| `adapters/*.move` | accounting wrappers and live protocol helper paths |
 
 ---
 
 ## Current Status
 
+| Track | Status | Meaning |
+|---|---|---|
+| `P1` core modules + tests | `DONE` | vault, oracle, queue, config base is in place |
+| `P2` planner + adapters | `DONE` | planner signals and adapter accounting exist |
+| `P3` lifecycle / safety tests | `DONE` | local lifecycle and concurrency coverage is in place |
+| `P4` deploy / monitor / release artifacts | `DONE` | deploy, monitor, demo, release docs exist |
+| `P5` live integration evidence | `DONE` | real LP and yield proof paths exist |
+| `R1` final immutable release closure | `OPEN` | final release discipline is still not claimed as complete |
+
+The strongest honest one-liner today is:
+
+> We already have real protocol evidence, and the next step is turning those proof paths into a release-disciplined execution product.
+
+---
+
+## Evidence Ledger
+
+This section is the single-page answer to: "What is actually proven right now?"
+
+### 1) Local correctness headline
+
+- `170 / 170 PASS`
+- `94.85%` overall Move coverage
+- key module snapshot:
+  - `oracle`: `99.61%`
+  - `entrypoints`: `95.98%`
+  - `queue`: `95.62%`
+  - `yield_source`: `97.31%`
+  - `vault`: `93.49%`
+  - `cetus_live`: `89.38%`
+  - `cetus_amm`: `88.63%`
+
+What it proves:
+
+- the local correctness baseline is strong
+- planner, queue, restore logic, and live helper layers are covered by current tests
+
+What it does not prove:
+
+- local coverage is not a substitute for live shared-object evidence
+
+### 2) Testnet lifecycle smoke
+
+- archived report: `out/reports/testnet_cycle_smoke_20260307T005500Z.json`
+- manifest: `out/deployments/testnet_smoke.json`
+- package: `0x96bad4d18461e2becbf0c658ab77f7d8569f6bb8c9ae58cefac1763ff9952c5c`
+- vault: `0x8417436eafa436708ba9e5720376cbf229dec022d30dc5d8c488ec59cb203716`
+- queue: `0xb61d9b25e58d758e2f245459f766670e8a01e5b120621892b6e5035d9518cc3c`
+- config: `0x1c4519cdf4f05a31741ab86cbaf16b757c526e0db9e4db60dae501e4de779b63`
+- key digests:
+  - deposit: `DuCkCs6C2NTy52XqFmUhuVfB6i1NagAHHAyju1ueViEn`
+  - cycle_1: `Dg9yuYZM6TxMs38gpFCjsRqsYTs7eXkjobofLu4BzTJ8`
+  - cycle_12: `HzSRbZGjCFHcmAiA7ewHVnEoLwGVHwvfmHeLCKMrnMyi`
+
+What it proves:
+
+- `publish -> bootstrap -> deposit -> repeated cycle -> monitor` works on testnet
+
+What it does not prove:
+
+- this smoke manifest still uses `0x0` adapter IDs, so it is lifecycle evidence, not live external-object integration proof
+
+### 3) Real Cetus external-object `open -> close`
+
+- archived report: `out/reports/cetus_live_probe_20260307T084718Z.json`
+- manifest: `out/deployments/testnet_cetus_live.json`
+- package: `0x5d765c15ebd4b020fda2ae82fec53cbaaf241344c75b6534e5d0d75ea808b684`
+- Cetus pool: `0xe8bee419df59bf9b71666255e3956ad8e324b03f39a2c413f174cb157fd84cd8`
+- open digest: `A9Zx6ae2AVgAVuHUHLmTEFUqUgR1V6cur1Ex27f5xrG7`
+- close digest: `F7Aao84uQWJxoXp2fpZme9pAyy8Twu19KjZjMADfXW5L`
+- position ID: `0x7e9dc2d50daa28eae52f6da6bbaac8d510ebe7a432e5f3b070211529dce65402`
+
+What it proves:
+
+- the repo can execute against real Cetus shared objects on testnet
+- package-matched object IDs are validated, not guessed
+
+What it does not prove:
+
+- core `cycle()` already manages live LP add / remove / close by itself
+
+### 4) Shared vault holding a real Cetus `Position`
+
+- archived report: `out/reports/cetus_vault_live_20260307T0829Z.json`
+- manifest: `out/deployments/testnet_cetus_vault_live.json`
+- package: `0xf2ef4141ad2cbe0de13ee528f5475b65308297eb0713de586bb9b30a49c8012e`
+- open digest: `FMN7VDYxp3f5Sdr2Lr1jpGpJvP9yZz5zLhoJSTU7qSu6`
+- close digest: `Cwda6DUMFZWFbDmgwk2X5TPr9kzkX4q4RjL9phGLDTuz`
+- position ID: `0xd9e74bd36f93685fa862b952c734ce59decfd1fe993fc2d46ef2c83509af8d98`
+
+What it proves:
+
+- a shared vault can hold a real Cetus `Position` NFT across transactions
+- the vault can later release and close it
+
+What it does not prove:
+
+- `cycle()` is not yet a fully automated live LP state machine
+
+### 5) Queue-pressure `cycle_live` close-before-cycle proof
+
+- archived report: `out/reports/cetus_cycle_live_probe_20260308T075620Z.json`
+- package: `0x179c80eb1431016796e4bc9ce62f6da22fc151189b0964e26190f2f8ff0c7981`
+- live tx digest: `3tjoD7afc5Qd1xiAmsF4kVa25Kj522JTZkkMG51fqSL3`
+
+What it proves:
+
+- under queue pressure, the live path can close the real Cetus position before `CycleEvent`
+- the tx ended with `ready_usdc = treasury_usdc` and `deployed_usdc = 0`, which aligns real-object unwind with accounting state
+
+### 6) Same-network operator-loop evidence
+
+- archived report: `out/reports/testnet_same_network_autonomy_20260308T125512Z.json`
+- continuation report: `out/reports/testnet_pressure_run_20260308T130434Z.json`
+
+What it proves:
+
+- planner-driven cycles can coexist with a real vault-held LP position
+- queued withdrawal pressure can close a live Cetus position and continue cycling on testnet
+
+### 7) Native staking proof
+
+- archived report: `out/reports/sui_staking_probe_20260307T_manual.json`
+- digest: `8QgfS7YQRq1bX2Dq9esLcC8CWhvi2itiEQCeQdfmXfZu`
+- `StakedSui` object: `0x4c310ceda6b01eb9fae12438cd78e622771cc88db505cb75040c04f9f6732478`
+
+What it proves:
+
+- the repo has a second real yield leg on testnet beyond LP proof
+
+### 8) First real DeFi lending proof via Scallop
+
+- archived report: `out/reports/scallop_supply_probe_20260307T120021Z.json`
+- status: `ok`
+- deposit digest: `DYpcPubA3cKSzUyDBR8tb5Qf4oUNPmJTB33wWZ7QzBvd`
+- withdraw digest: `9jFt9AuxjrGn8EmN7mBp41wMbMbLARhtnPrHqcXWoZZA`
+
+What it proves:
+
+- one real DeFi lending `deposit -> query -> withdraw` flow completed
+- the Scallop SDK wiring works in real execution for the active wallet
+
+What it does not prove:
+
+- `Scallop` should still be described as `proof + bridge`, not same-network autonomous vault execution
+
+### 9) Explicit perps blocker record
+
+- archived report: `out/reports/aftermath_perps_probe_20260307T_manual.json`
+- current status: `blocked`
+- blocker details:
+  - `registry::create_account` abort code `19`
+  - tested collaterals returned `0 markets`
+
+What it proves:
+
+- the perps blocker is explicit and reproducible
+
+What it does not prove:
+
+- there is still no live perps evidence, and it should not be marketed as if it exists
+
+### 10) Formal and chaos assurance layers
+
+- formal entrypoint: `bash scripts/formal_verify_wsl.sh -v`
+- chaos entrypoint: `python scripts/chaos_phase1.py`
+- current chaos matrix: `12` deterministic experiments
+- current formal scope: helper / accounting / planner / reserve / restore slices under `formal/`
+
+What it proves:
+
+- the repo has explicit assurance layers beyond unit tests
+- blockers and degraded paths are replayable rather than hand-waved
+
+What it does not prove:
+
+- current formal scope is not the same as full proof of all live shared-object paths
+
+---
+
+## Honest Current Boundaries
+
+These statements are true:
+
+- real protocol evidence exists
+- P5 technical closure is complete
+- the strongest live-object depth today is on the Cetus path
+- native staking proof exists
+- one real DeFi lending proof exists via Scallop
+
+These statements are not honest yet:
+
+- fully autonomous same-network execution across every live leg
+- Scallop is already same-network autonomous vault execution
+- perps is nearly done
+- final immutable release is ready now
+
+The cleanest current framing is:
+
 ```text
-P1  Core modules + unit tests                   [DONE]
-P2  Strategy orchestration + adapter accounting [DONE]
-P3  Lifecycle + concurrency + safety tests      [DONE locally]
-P4  Deployment readiness artifacts              [DONE]
-P5  Live integration + sign-off evidence        [DONE]
-R1  Final immutable release closure             [OPEN]
+high-trust live strategy prototype
+  -> moving toward release-disciplined execution product
 ```
 
-What is included now:
+---
 
-- `OnlyUnwind` restore gate with `2` safe cycles
-- multi-user queue fairness and conservation tests
-- config freeze support for deployment finalization
-- event surface for monitoring and alerting
-- deploy / monitor / demo scripts for operator workflows
-- funded testnet smoke path completed with `deposit + 12 cycles`
-- latest local Move validation on `2026-03-09` sits at `170/170 PASS` and `94.85%` overall coverage
-- local Cetus wrapper tests now cover `open / add / remove / swap / amount` flows
-- explicit live LP helper path now includes `open_position_into_vault / rebalance_live / close_stored_position_from_vault`
-- `cetus_live` now also has a `cycle_live` path that can auto-close a stored live Position under stress / queue pressure when the operator passes the real pool objects
-- `StrategyPlannedEvent` now carries LP reason / queue-pressure / oracle snapshot metadata alongside the planner actions
-- planned Cetus executor wrappers now exist for operator-safe `open / add / remove / close` execution with preflight assertions and metadata post-sync
-- oracle logic now supports confidence-aware effective volatility and hysteresis-aware regime classification
-- restore logic now uses guarded `OnlyUnwind` recovery instead of a blind safe-cycle counter
-- `scripts/cetus_cycle_live_probe.py` now proves the queue-pressure `cycle_live` branch on real testnet objects and checks that `CetusPositionClosedEvent` lands before `CycleEvent`
-- P5 technical closure is now treated as complete; the remaining gap is final immutable release closure rather than missing core live evidence
-- vault now persists live Cetus metadata for `open -> hold snapshot -> close`
-- a real `Scallop` supply probe script now exists: `python scripts/scallop_supply_probe.py --help`
-- latest Scallop mainnet proof succeeded: `depositQuick -> query -> withdrawQuick` now has a real archived report under `out/reports/scallop_supply_probe_20260307T120021Z.json`
-- vault now also has live yield metadata / bookkeeping hooks ready for a real lending leg
-- `scripts/scallop_core_bridge.py` now provides the operator bridge for syncing a successful Scallop report back into Vault bookkeeping, while explicitly blocking unsafe cross-network syncs
-- oracle volatility is now based on return-style EWMA instead of simple TWAP deviation
-- reserve math now uses an explicit `reserve_target = max(queue, ratio, floor)` style model, and `monitor_sui.py` now prints reserve-derived fields (`q_score`, reserve target, deployable)
-- a dedicated WSL formal suite now exists under `formal/`, and `bash scripts/formal_verify_wsl.sh -v` currently proves the core helper layer with `sui-prover`
+## Release Status
 
-What is still intentionally out of scope for this repo snapshot:
+This repo deliberately separates `P5 complete` from `release-ready`.
 
-- full formalization of `cycle()` / live shared-object paths; the current formal suite focuses on the core helper / accounting layer under `formal/`
-- one-click mainnet publish from CI without operator wallet / gas
-- production-grade hosted dashboards / alert routing beyond the local scripts
-- fully automated `cycle()`-managed live LP add / remove / close state machine
+Current release truth:
 
-Quick external-reader docs:
+```text
+P5 technical closure = yes
+final immutable release readiness = no
+```
 
-- `ASSURANCE_BOARD.md`
-- `docs/P5_CLOSURE.md`
-- `docs/INVESTOR_STATUS_BRIEF.md`
-- `docs/EVIDENCE_BOARD.md`
-- `docs/RUNBOOK.md`
+What is already done:
+
+- deploy / bootstrap / monitor / demo scripts exist
+- `config.seal()` is implemented as a release gate
+- setter behavior after `seal()` is covered by fail-closed tests
+- final release dry-run tooling exists
+
+Dry-run artifacts:
+
+- normalized release candidate manifest:
+  - `out/deployments/testnet_same_network_autonomy_c_final_release_candidate.json`
+- dry-run report:
+  - `out/reports/final_release_dry_run_20260309T102134Z.json`
+
+What still remains before a final immutable release claim:
+
+- final publish candidate must be replayed in the intended release posture
+- operator / wallet / `AdminCap` responsibility must be frozen into the final release archive
+- final release sign-off must stay aligned with the current external guardrails
+
+---
+
+## Why Sui
+
+Sui's object model is a particularly good fit for this design:
+
+- shared `Vault`
+- shared withdrawal `Queue`
+- object-identity-sensitive live protocol integrations
+- planner / executor / post-sync state-machine structure
+- vault-held real protocol objects across transactions
+
+This is why the project focuses on proving real object behavior instead of only simulating accounting flows.
+
+---
+
+## Validation Snapshot
+
+Latest local validation on `2026-03-09`:
+
+- `cd sui && sui move test --quiet` -> `170 / 170 PASS`
+- `cd sui && sui move test --coverage && sui move coverage summary` -> `94.85%`
+- `python scripts/chaos_phase1.py` -> green
+- `wsl bash scripts/formal_verify_wsl.sh -v` -> green
+
+Why the current coverage headline is still honest:
+
+- an older `>= 95%` headline was reached earlier in the repo history
+- the current truth after live-LP expansion is `94.85%`
+- the README now keeps the latest verified number instead of reusing stale historical metrics
+
+The important practical point:
+
+- live integration evidence matters more than one raw percentage
+- but the percentage still has to stay truthful
 
 ---
 
 ## Quickstart
 
-### Build and test
+Build and test:
 
 ```bash
 cd sui
@@ -274,59 +459,33 @@ sui move coverage summary
 sui move test --statistics
 ```
 
-### Formal verification (WSL)
-
-Run from the repo root inside WSL:
+Formal verification from WSL:
 
 ```bash
 bash scripts/install_sui_prover_wsl.sh
 bash scripts/formal_verify_wsl.sh -v
 ```
 
-Current formal scope:
-
-- `formal/` proves the core helper / accounting layer
-- current green areas now span `51` proof entrypoints, including `oracle::compute_regime` + first-snapshot transition, `queue::claim_ready` + empty-queue `process_queue` slice, queue creation/enqueue accounting, reserve / queue-pressure math identities, adjusted-buffer cap boundaries, planner action / live-close intent helpers, planner deployable-capacity bounds, share math, first-deposit accounting, cycle helper proofs (`apply_cycle_regime` / `compute_cycle_bounty`), one empty-state `vault::cycle()` wrapper proof, risk-mode restore/reset, zero-edge bounty proofs, and live-yield bookkeeping helpers
-- `cycle()` and live shared-object paths are still intentionally outside the current formal boundary
-
-### Chaos Phase 1 (local)
-
-Run the local blocker / operator-safety harness:
+Deploy and smoke:
 
 ```bash
-python scripts/chaos_phase1.py
+python scripts/deploy_sui.py --base-type 0x2::sui::SUI --min-cycle-interval-ms 0 --min-snapshot-interval-ms 0
+python scripts/testnet_cycle_smoke.py --manifest out/deployments/testnet_smoke.json
+python scripts/monitor_sui.py --manifest out/deployments/testnet_smoke.json
 ```
 
-Current matrix:
+Live proof probes:
 
-- `ASSURANCE_BOARD.md`
-- `CHAOS_MATRIX.md`
+```bash
+python scripts/cetus_live_probe.py --help
+python scripts/cetus_cycle_live_probe.py --help
+python scripts/cetus_live_suite.py --help
+python scripts/sui_staking_probe.py --help
+python scripts/scallop_supply_probe.py --help
+python scripts/aftermath_perps_probe.py --help
+```
 
-Current chaos scope:
-
-- bridge blockers: `blocked_bad_report_status`, `blocked_cross_network`, `blocked_wrong_active_env`, `blocked_non_isolated_wallet_state`
-- bridge happy-path bookkeeping sync replay
-- smoke blocker: `blocked_no_testnet_gas`
-- monitor degraded paths: no-events alert, RPC error, malformed JSON, stale-cycle age alert, `OnlyUnwind` / reserve-pressure alert surfacing, and `used_flash` info surfacing
-- current local chaos suite: `12` deterministic experiments, all replayable without funded chain mutation
-
-### CI assurance
-
-The current CI workflow now runs three layers:
-
-- `move-tests`: installs `sui` via `suiup` and runs `cd sui && sui move test`
-- `formal`: runs `bash scripts/formal_verify_wsl.sh -v` equivalent on Linux CI
-- `chaos`: runs `python scripts/chaos_phase1.py`
-- CI also uploads a `formal-log` artifact and a `chaos-reports` artifact to make failure triage easier without guessing from email subject lines alone
-
-Cross-platform note:
-
-- Linux CI is sensitive to Windows-style path separators inside checked-in Move lockfiles
-- the repo now normalizes `sui/Move.lock` / `formal/Move.lock` paths in CI before running tests, which prevents the recurring `packages\\...` dependency-resolution failure on Ubuntu runners
-
-### Windows short-path helper
-
-If your Windows path is too long for Move dependencies:
+Windows short-path workaround:
 
 ```powershell
 subst X: "C:\AI Projects\Fun Stuff\IndieHacker\Self-Driving-Yield-Sui"
@@ -335,325 +494,6 @@ cd X:\sui
 sui move test
 subst X: /D
 ```
-
----
-
-## Deployment Readiness (P4)
-
-### P4.1 Params Frozen
-
-`config.move` now supports a **freeze switch**.
-
-```text
-[Create Config]
-      |
-      v
-[Set intervals + adapter IDs]
-      |
-      v
-[seal(AdminCap)]
-      |
-      v
-[All future setters abort]
-```
-
-Why this matters:
-
-- makes final operator intent explicit
-- prevents accidental config drift after launch
-- gives monitoring a strong ?deployment finalized? signal
-
-### P4.2 One-Click Deploy + Init
-
-Use the deploy script:
-
-```bash
-python scripts/deploy_sui.py --help
-python scripts/cetus_live_probe.py --help
-```
-
-Typical flow:
-
-```text
-[Publish package]
-      |
-      v
-[Find SDYE TreasuryCap]
-      |
-      v
-[bootstrap<BASE>()]
-      |
-      +--> create Vault shared object
-      +--> create Queue shared object
-      +--> create Config shared object
-      +--> transfer AdminCap to operator
-      |
-      v
-[Set adapter IDs]
-      |
-      v
-[Freeze config]
-      |
-      v
-[Write manifest JSON to out/deployments/*.json]
-```
-
-Example:
-
-```bash
-python scripts/deploy_sui.py   --base-type 0xdba34672e30...::usdc::USDC   --min-cycle-interval-ms 60000   --min-snapshot-interval-ms 60000   --cetus-pool-id 0x111   --lending-market-id 0x222   --perps-market-id 0x333   --flashloan-provider-id 0x444
-```
-
-### P4.3 Monitoring + Alerts
-
-Use the monitoring script:
-
-```bash
-python scripts/monitor_sui.py --help
-```
-
-Event stream:
-
-```text
-[deposit()] ----------> DepositEvent
-[request_withdraw()] -> WithdrawRequestedEvent
-[claim()] ------------> ClaimedEvent
-[cycle()] ------------> CycleEvent
-[seal()] -------------> ConfigFrozenEvent
-```
-
-Alert logic:
-
-```text
-[Latest CycleEvent]
-      |
-      +--> OnlyUnwind == true          -> HIGH
-      +--> ready_usdc > treasury       -> CRIT
-      +--> pending_usdc > treasury     -> WARN
-      +--> no cycle for too long       -> HIGH
-      +--> used_flash == true          -> INFO
-```
-
-### P4.4 Ops Runbook (Minimal)
-
-```text
-If queue pressure rises:
-  1. inspect latest CycleEvent
-  2. compare treasury_usdc vs ready_usdc vs pending_usdc
-  3. call cycle() again if interval allows
-  4. if OnlyUnwind is active, do not attempt re-risking
-
-If regime is storm:
-  1. expect lower LP exposure
-  2. expect unwind-first behavior
-  3. watch safe_cycles_since_storm until restore
-
-If flash path appears repeatedly:
-  1. inspect delta size and queue load
-  2. verify adapter IDs and liquidity assumptions
-  3. consider widening cycle cadence or buffer policy
-```
-
-### P4.5 5-Minute Demo Script
-
-Use the demo automation:
-
-```bash
-python scripts/demo_sui.py --help
-```
-
-Demo flow:
-
-```text
-[split base coin]
-      |
-      v
-[deposit]
-      |
-      v
-[cycle #1 -> deploy]
-      |
-      v
-[request_withdraw]
-      |
-      v
-[cycle #2 -> unwind queue]
-      |
-      v
-[claim]
-```
-
-### P4.6 Mainnet Deploy
-
-This repo now includes the artifacts needed for operator-driven mainnet deployment, but **actual publish still requires**:
-
-- funded mainnet wallet
-- finalized adapter IDs
-- real `Coin<BASE>` choice
-- operator confirmation of gas budgets and permissions
-
-In other words: the repo is **deployment-ready**, but the final mainnet transaction is still an operator action.
-
----
-
-## Testing Snapshot
-
-Last verified: `2026-03-09`
-
-Latest local validation:
-
-- `sui move test` -> `170/170 PASS`
-- `sui move coverage summary` -> `94.85%` overall
-- key module snapshot -> `cetus_live 89.38%`, `entrypoints 95.98%`, `vault 93.49%`, `queue 95.62%`, `oracle 99.61%`, `yield_source 97.31%`, `cetus_amm 88.63%`
-- live-integration risk still matters more than raw local coverage, especially around real shared objects and operator flows
-- latest live testnet validation on `2026-03-07`: `testnet_cycle_smoke.py --manifest out/deployments/testnet_smoke.json` returned `status=ok`, completed another `deposit + 12 cycles`, and `monitor_sui.py` reported `OK: no alert thresholds triggered`
-
-Current truth boundary:
-
-- local validation is still strong, but overall coverage is currently back below the repo's `>= 95%` fundraising target after the latest live-LP state-machine expansion
-- local validation does not replace real shared-object state-machine evidence
-- current investor-facing proof still comes primarily from the archived testnet / mainnet reports under `out/reports/`
-
-See also:
-
-- `docs/EVIDENCE_BOARD.md`
-- `docs/EXTERNAL_GUARDRAILS.md`
-- `docs/EVIDENCE_FRESHNESS_CHECKLIST.md`
-| `cetus_amm` | 88.63% | 88.63% |
-
-Testing pyramid used in this repo:
-
-```text
-           /          /P4\      Deploy scripts / monitoring / demo readiness
-         /----        / P3  \    Lifecycle / invariants / concurrency tests
-       /------      /  P2    \   test_scenario integration flows
-     /--------    /   P1     \  unit tests per module
-   /----------  /    P0      \ research / interfaces / economics
-```
-
----
-
-## Upgrade Strategy
-
-What matters now:
-
-- The repo is currently a **single Sui package**, so upgradeability is decided at the package level, not per module.
-- That means `immutable core + timelocked adapters` is a good target architecture, but it is **not fully achievable in the current package layout**.
-
-Recommended decision:
-
-```text
-[Current single-package layout]
-      |
-      +--> v1 recommendation: publish immutable after P5 sign-off
-      |
-      +--> if future adapter churn is expected:
-              split adapters into a separate package first
-              then keep core immutable + adapters behind timelock
-```
-
-### P5.1 Cetus-First Live Probe
-
-For the first real external-object slice, use the dedicated live probe:
-
-```bash
-python scripts/cetus_live_probe.py --help
-python scripts/cetus_cycle_live_probe.py --help
-python scripts/cetus_live_suite.py --help
-python scripts/sui_staking_probe.py --help
-```
-
-What it does:
-
-- creates or refreshes a dedicated manifest such as `out/deployments/testnet_cetus_live.json`
-- pins a real non-zero `cetus_pool_id` into config during deploy
-- opens a real Cetus position with user-supplied coins against real shared objects
-- optionally closes the position immediately and archives a JSON report under `out/reports/`
-
-Latest real-object proof on `2026-03-07`:
-
-- real `TEST_QUOTE / SDYE` Cetus pool created on testnet: `0xe8bee419df59bf9b71666255e3956ad8e324b03f39a2c413f174cb157fd84cd8`
-- `cetus_live_probe.py` completed `open -> close` successfully against that pool
-- probe digests: open `DEcDuiCYaxZ1um1CTZ6eknB1iCZbcJixVpJfo5vXZHqZ`, close `6D61T4sevFafRGpBCnd5D3buruPzrGm2zoJWvCroQhs3`
-- one-click replay now exists: `python scripts/cetus_live_suite.py --help`
-- result: the repo now has current testnet evidence for a real external-object Cetus path, not only accounting-only lifecycle smoke
-
-Latest queue-pressure `cycle_live` proof on `2026-03-08`:
-
-- dedicated manifest: `out/deployments/testnet_cetus_cycle_live.json`
-- fresh package for this probe: `0x179c80eb1431016796e4bc9ce62f6da22fc151189b0964e26190f2f8ff0c7981`
-- archived report: `out/reports/cetus_cycle_live_probe_20260308T075620Z.json`
-- the live tx `3tjoD7afc5Qd1xiAmsF4kVa25Kj522JTZkkMG51fqSL3` emitted `CetusPositionClosedEvent` before `CycleEvent` (`2 < 3`), which confirms the current `cycle_live` queue-pressure branch now closes the real Position before running the core cycle
-- same tx ended with `ready_usdc = 724753578`, `treasury_usdc = 724753578`, `deployed_usdc = 0`, so this branch now leaves accounting and real-object close evidence aligned in one on-chain step
-
-### P5 Status Now
-
-What is already true:
-
-- native lifecycle smoke is working on testnet
-- native staking has a real testnet proof path
-- Scallop has a real supply / withdraw proof path
-- Cetus has real-object proofs for `open -> close`, vault-held Position ownership across transactions, and queue-pressure `cycle_live` close-before-cycle behavior
-- formal and local chaos layers are both green on the current scope
-
-What is still not done:
-
-- `vault::cycle()` is not yet a full live multi-adapter strategy engine
-- live adapter wiring is still strongest on the Cetus path; other DeFi legs are not yet at the same operational depth
-- Aftermath perps should still be treated as blocked on testnet until a working path is revalidated
-
-What matters for sign-off:
-
-- package immutability should be decided after P5 evidence is considered sufficient
-- the next useful step is to either deepen one more real live leg or convert the current evidence into a tighter release / sign-off checklist
-
-Latest vault-ownership proof on `2026-03-07`:
-
-- fresh vault-live package: `0xf2ef4141ad2cbe0de13ee528f5475b65308297eb0713de586bb9b30a49c8012e`
-- `open_position_into_vault_entry` digest: `FMN7VDYxp3f5Sdr2Lr1jpGpJvP9yZz5zLhoJSTU7qSu6`
-- `close_stored_position_from_vault_entry` digest: `Cwda6DUMFZWFbDmgwk2X5TPr9kzkX4q4RjL9phGLDTuz`
-- what this proves: a shared `Vault` can now hold a real Cetus `Position` NFT across transactions and release it later
-
-Latest yield-source proof on `2026-03-07`:
-
-- native testnet staking probe script: `python scripts/sui_staking_probe.py --help`
-- latest successful staking digest: `8QgfS7YQRq1bX2Dq9esLcC8CWhvi2itiEQCeQdfmXfZu`
-- latest `StakedSui` object: `0x4c310ceda6b01eb9fae12438cd78e622771cc88db505cb75040c04f9f6732478`
-- why this matters: the repo now has a second real yield leg on testnet, even though `yield_source.move` itself is still accounting-only in core Move logic
-
-Perps testnet note:
-
-- `python scripts/aftermath_perps_probe.py --help` archives the current Aftermath perps blocker
-- latest run hit `registry::create_account` abort code `19`, and tested collaterals returned zero markets
-- treat perps testnet as blocked until Aftermath re-enables or documents a working testnet path
-
-Accounting branch vs live branch:
-
-```text
-[Accounting branch]
-   ├─ uses plain `cycle()`
-   ├─ rebalances internal buckets only
-   └─ proves vault / queue / oracle / accounting lifecycle
-
-[Live branch]
-   ├─ uses Cetus live helpers and real shared objects
-   ├─ explicit paths: `open_position_into_vault / rebalance_live / close_stored_position_from_vault`
-   ├─ vault tracks live Position metadata across tx
-   └─ current limit: `rebalance_live` records live hold snapshots, but does not yet auto add/remove/close liquidity
-```
-
-Why this matters:
-
-- it produces evidence beyond the accounting-only `cycle()` path
-- it keeps real Cetus proof separate from the older lifecycle-only `testnet_smoke` manifest
-- it also exposed an integration gotcha: this repo is pinned to Cetus testnet package `0x5372...`, so live object IDs must match that package rather than older SDK defaults
-
-Why this is the safest default:
-
-- `vault / queue / oracle / share accounting` carry the highest invariant risk.
-- keeping the whole package upgradeable just to patch adapters leaves the core mutable too.
-- if adapter flexibility is genuinely needed, package split is the clean boundary.
-- `config.seal()` should still be part of the launch path even for an immutable release.
 
 ---
 
@@ -672,38 +512,58 @@ sui/
 └─ tests/
 
 scripts/
-├─ backtest.py
-├─ cetus_cycle_live_probe.py
-├─ cetus_live_probe.py
 ├─ deploy_sui.py
+├─ testnet_cycle_smoke.py
 ├─ monitor_sui.py
-└─ demo_sui.py
+├─ cetus_live_probe.py
+├─ cetus_cycle_live_probe.py
+├─ cetus_live_suite.py
+├─ sui_staking_probe.py
+├─ scallop_supply_probe.py
+└─ aftermath_perps_probe.py
 
-poc/
-out/                  # local manifests / generated artifacts (gitignored)
+formal/
+out/      # local manifests / reports
+docs/     # local diligence and release notes
 ```
 
 ---
 
-## Notes on Legacy Files
+## Reading Order For Diligence
 
-Some ignored root-level documents are from an older BSC / Solidity exploration and are **not** the source of truth for the current Sui Move implementation.
+If you only read one file, read this README.
 
-Use this README + `sui/` source code as the primary reference.
+If you want deeper detail after that:
+
+- `ASSURANCE_BOARD.md`
+- `docs/P5_CLOSURE.md`
+- `docs/INVESTOR_STATUS_BRIEF.md`
+- `docs/EVIDENCE_BOARD.md`
+- `docs/EXTERNAL_GUARDRAILS.md`
+- `docs/FINAL_RELEASE_RUNBOOK.md`
 
 ---
 
-## Next Logical Steps
+## Bottom Line
 
-If you want to keep shipping after P4, the next high-value items are:
+This repo is no longer a paper-only strategy design.
+
+It already shows:
+
+- strong local correctness
+- real testnet lifecycle evidence
+- real Cetus live-object evidence
+- real vault-held Position evidence
+- real queue-pressure close-before-cycle evidence
+- native staking proof
+- first real DeFi lending proof
+- explicit blocker discipline where proof does not yet exist
+
+The remaining gap is not "can this repo touch real protocols at all?"
+
+The remaining gap is:
 
 ```text
-[P5 Live Integration]
-   |
-   +--> upgrade `rebalance_live` from hold-snapshot to true add/remove/close state machine
-   +--> add one real DeFi yield leg beyond native staking (Scallop first)
-   +--> keep investor evidence board + README in sync with the latest reports
-   +--> operator dashboard / hosted alerting
+turning proven live paths into a more productized,
+release-disciplined execution state machine
 ```
-
-
