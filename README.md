@@ -56,6 +56,47 @@ It is still not honest to present the repo as fully autonomous across every live
 
 ---
 
+## Investor Readiness
+
+Short answer:
+
+```text
+yes, you can start investor conversations now
+but you should pitch this as:
+sealed testnet release candidate
+with real LP + yield evidence
+and explicit operational boundaries
+```
+
+What is strong enough to show now:
+
+- the repo is no longer a design-only strategy doc
+- there is a sealed final candidate on testnet
+- there is real Cetus live-object evidence
+- there is real native staking evidence
+- there is one real DeFi lending proof via Scallop
+- there is explicit release discipline, archive discipline, and operator tooling
+
+What you should not say yet:
+
+- fully autonomous across every live leg
+- mainnet-ready launch next week
+- perps is already live
+- every adapter is already same-network automated
+
+The best current investor framing is:
+
+```text
+We already proved the hard part:
+this vault can survive real object-level execution,
+queue pressure, and sealed-release discipline on Sui testnet.
+
+The remaining work is productization and operational depth,
+not whether the system can touch real protocols at all.
+```
+
+---
+
 ## Why This Exists
 
 Most onchain vaults optimize only for yield.
@@ -349,7 +390,7 @@ What it does not prove:
 
 - formal entrypoint: `bash scripts/formal_verify_wsl.sh -v`
 - chaos entrypoint: `python scripts/chaos_phase1.py`
-- current chaos matrix: `12` deterministic experiments
+- current chaos matrix: `16` deterministic experiments
 - current formal scope: helper / accounting / planner / reserve / restore slices under `formal/`
 
 What it proves:
@@ -489,6 +530,12 @@ What this means:
 - the sealed package remains unchanged
 - operator liveness and evidence export are now less ad hoc
 - investor / auditor handoff no longer depends on manually collecting files one by one
+
+Current operational note as of `2026-03-09`:
+
+- external HTTP price sources are now wired into the keeper ops layer
+- keeper dry-run works against the sealed final manifest
+- the next real keeper execution is currently waiting on refreshed `testnet` gas, not on missing code
 
 ---
 
