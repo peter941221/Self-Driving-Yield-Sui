@@ -710,6 +710,7 @@ sui/
 └─ tests/
 
 scripts/
+├─ README.md
 ├─ deploy_sui.py
 ├─ testnet_cycle_smoke.py
 ├─ monitor_sui.py
@@ -725,10 +726,12 @@ scripts/
 └─ aftermath_perps_probe.py
 
 formal/
+├─ README.md
 ├─ PROOF_MATRIX.md
 └─ sources/
 
 reference/
+├─ README.md
 ├─ ASSURANCE_BOARD.md
 └─ CHAOS_MATRIX.md
 
@@ -752,8 +755,11 @@ If you only read one file, read this README.
 
 If you want deeper public detail after that:
 
+- `reference/README.md`
 - `reference/ASSURANCE_BOARD.md`
 - `reference/CHAOS_MATRIX.md`
+- `scripts/README.md`
+- `formal/README.md`
 - `formal/PROOF_MATRIX.md`
 - `poc/economics/README.md`
 - `poc/aftermath-perps/README.md`
@@ -762,9 +768,12 @@ Suggested reading by audience:
 
 - non-technical investor
   - this README
+  - `reference/README.md`
   - `reference/ASSURANCE_BOARD.md`
 - technical investor / auditor
   - this README
+  - `scripts/README.md`
+  - `formal/README.md`
   - `reference/ASSURANCE_BOARD.md`
   - `reference/CHAOS_MATRIX.md`
   - `formal/PROOF_MATRIX.md`
