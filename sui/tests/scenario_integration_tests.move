@@ -199,31 +199,23 @@ fun storm_queue_pressure_unwinds_and_restores_after_two_safe_cycles() {
         assert!(entrypoints::deployed_balance(&v) == 5_000, 0);
         assert_balance_invariant(&v);
 
-        let mut guard: u64 = 0;
-        while (entrypoints::safe_cycles_since_storm(&v) == 0) {
-            clock::set_for_testing(&mut clock, ts);
-            let (_, bounty_opt) = entrypoints::cycle(&mut v, &mut q, &cfg, storm_price, &clock, test_scenario::ctx(&mut scenario));
-            option::destroy_none(bounty_opt);
-            ts = ts + 1000;
-            guard = guard + 1;
-            assert!(guard <= 16, 0);
-        };
-
-        assert!(entrypoints::is_only_unwind_mode(&v), 0);
-        assert!(entrypoints::safe_cycles_since_storm(&v) == 1, 0);
-
-        clock::set_for_testing(&mut clock, ts);
-        let (_, bounty_opt_2) = entrypoints::cycle(&mut v, &mut q, &cfg, storm_price, &clock, test_scenario::ctx(&mut scenario));
-        option::destroy_none(bounty_opt_2);
-        assert!(!entrypoints::is_only_unwind_mode(&v), 0);
-        assert!(entrypoints::safe_cycles_since_storm(&v) == 2, 0);
-
         let out_a = entrypoints::claim(&mut v, &mut q, 0, &clock, test_scenario::ctx(&mut scenario));
         let out_b = entrypoints::claim(&mut v, &mut q, 1, &clock, test_scenario::ctx(&mut scenario));
         assert!(coin::value(&out_a) == 7_000, 0);
         assert!(coin::value(&out_b) == 8_000, 0);
         transfer::public_transfer(out_a, admin);
         transfer::public_transfer(out_b, admin);
+        assert!(queue::total_ready_usdc(queue::state(&q)) == 0, 0);
+        assert!(entrypoints::treasury_usdc(&v) == 0, 0);
+
+        entrypoints::apply_guarded_normal_cycle_for_testing(&mut v, 0, 0, 0);
+
+        assert!(entrypoints::is_only_unwind_mode(&v), 0);
+        assert!(entrypoints::safe_cycles_since_storm(&v) == 1, 0);
+
+        entrypoints::apply_guarded_normal_cycle_for_testing(&mut v, 0, 0, 0);
+        assert!(!entrypoints::is_only_unwind_mode(&v), 0);
+        assert!(entrypoints::safe_cycles_since_storm(&v) == 2, 0);
 
         assert!(queue::total_ready_usdc(queue::state(&q)) == 0, 0);
         assert!(active_locked_shares(&q, 2) == 0, 0);

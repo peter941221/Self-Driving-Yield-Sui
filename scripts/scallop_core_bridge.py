@@ -58,6 +58,12 @@ def load_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def require_manifest_fields(manifest, fields):
+    missing = [field for field in fields if not manifest.get(field)]
+    if missing:
+        raise SystemExit(f"Manifest missing required field(s): {', '.join(missing)}")
+
+
 def parse_amount(value):
     if value is None:
         return 0
@@ -85,6 +91,7 @@ def main():
 
     manifest = load_json(args.manifest)
     report = load_json(args.report)
+    require_manifest_fields(manifest, ["network", "package_id", "vault_id", "config_id", "admin_cap_id", "base_type"])
     report_path = Path(args.report_out) if args.report_out else ROOT / "out" / "reports" / f"scallop_core_bridge_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -100,9 +107,17 @@ def main():
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "manifest": str(Path(args.manifest)),
         "source_report": str(Path(args.report)),
+        "bridge_mode": "proof_plus_bridge",
         "manifest_network": manifest.get("network"),
         "report_env": report.get("env"),
         "active_env": active_env(),
+        "manifest_ids": {
+            "package_id": manifest.get("package_id"),
+            "vault_id": manifest.get("vault_id"),
+            "config_id": manifest.get("config_id"),
+            "admin_cap_id": manifest.get("admin_cap_id"),
+            "base_type": manifest.get("base_type"),
+        },
         "status": "pending",
         "derived": {
             "before_value": before_value,
@@ -133,6 +148,11 @@ def main():
         bridge_report["status"] = "blocked_non_isolated_wallet_state"
         report_path.write_text(json.dumps(bridge_report, indent=2), encoding="utf-8")
         raise SystemExit(f"Blocked: source wallet already had a pre-existing Scallop position before this run. Report written to {report_path}")
+
+    if not receipt_id:
+        bridge_report["status"] = "blocked_missing_receipt_id"
+        report_path.write_text(json.dumps(bridge_report, indent=2), encoding="utf-8")
+        raise SystemExit(f"Blocked: could not derive a Scallop receipt object id from report. Report written to {report_path}")
 
     payloads = []
     base_type = manifest["base_type"]

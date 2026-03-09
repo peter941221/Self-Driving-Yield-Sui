@@ -110,3 +110,137 @@ fun live_yield_entry_wrappers_update_metadata() {
 
     test_scenario::end(scenario);
 }
+
+#[test]
+fun entrypoints_accessor_surface_covers_live_fields() {
+    let admin = @0x1;
+    let mut scenario = test_scenario::begin(admin);
+    test_scenario::create_system_objects(&mut scenario);
+
+    {
+        let sdye_treasury = coin::create_treasury_cap_for_testing<sdye::SDYE>(test_scenario::ctx(&mut scenario));
+        entrypoints::bootstrap<usdc::USDC>(sdye_treasury, 0, 0, test_scenario::ctx(&mut scenario));
+    };
+    test_scenario::next_tx(&mut scenario, admin);
+
+    {
+        let mut clock = test_scenario::take_shared<sui::clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let cap = test_scenario::take_from_sender<config::AdminCap>(&scenario);
+
+        config::set_cetus_pool_id(&mut cfg, &cap, @0x111);
+        config::set_lending_market_id(&mut cfg, &cap, @0x222);
+        config::set_perps_market_id(&mut cfg, &cap, @0x333);
+
+        sui::clock::set_for_testing(&mut clock, 1_000);
+        entrypoints::sync_live_yield_deposit_entry(&mut v, &cfg, &cap, @0xabc, 500, 550, &clock);
+
+        assert!(entrypoints::cetus_pool_id(&v) == @0x0, 0);
+        assert!(entrypoints::yield_receipt_id(&v) == @0xabc, 0);
+        assert!(entrypoints::yield_deployed_usdc(&v) == 0, 0);
+        assert!(entrypoints::live_yield_enabled(&v), 0);
+        assert!(entrypoints::live_yield_position_present(&v), 0);
+        assert!(entrypoints::live_yield_last_market_id(&v) == @0x222, 0);
+        assert!(entrypoints::live_yield_last_receipt_id(&v) == @0xabc, 0);
+        assert!(entrypoints::live_yield_last_principal(&v) == 500, 0);
+        assert!(entrypoints::live_yield_last_value(&v) == 550, 0);
+        assert!(entrypoints::live_yield_last_snapshot_ts_ms(&v) == 1_000, 0);
+        assert!(entrypoints::live_yield_last_action_code(&v) == yield_source::live_yield_action_deposit(), 0);
+        assert!(entrypoints::hedge_position_id(&v) == @0x0, 0);
+        assert!(entrypoints::hedge_notional_usdc(&v) == 0, 0);
+        assert!(entrypoints::hedge_margin_usdc(&v) == 0, 0);
+        assert!(!entrypoints::live_cetus_enabled(&v), 0);
+        assert!(!entrypoints::live_cetus_position_present(&v), 0);
+        assert!(entrypoints::live_cetus_last_position_id(&v) == @0x0, 0);
+        assert!(entrypoints::live_cetus_last_principal_a(&v) == 0, 0);
+        assert!(entrypoints::live_cetus_last_principal_b(&v) == 0, 0);
+        assert!(entrypoints::live_cetus_last_snapshot_ts_ms(&v) == 0, 0);
+        assert!(entrypoints::live_cetus_action_open() == 1, 0);
+        assert!(entrypoints::live_cetus_action_hold() == 2, 0);
+        assert!(entrypoints::live_cetus_action_close() == 3, 0);
+        assert!(entrypoints::live_cetus_action_add() == 4, 0);
+        assert!(entrypoints::live_cetus_action_remove() == 5, 0);
+        assert!(!entrypoints::last_rebalance_used_flash(&v), 0);
+        assert!(entrypoints::deployed_balance(&v) == 0, 0);
+
+        sui::clock::set_for_testing(&mut clock, 2_000);
+        entrypoints::sync_live_yield_hold_entry(&mut v, &cfg, &cap, @0xabc, 575, &clock);
+        assert!(entrypoints::live_yield_last_value(&v) == 575, 0);
+        sui::clock::set_for_testing(&mut clock, 3_000);
+        entrypoints::sync_live_yield_withdraw_entry(&mut v, &cfg, &cap, @0xabc, 575, 0, &clock);
+        assert!(!entrypoints::live_yield_position_present(&v), 0);
+        assert!(entrypoints::live_yield_last_receipt_id(&v) == @0x0, 0);
+
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(cfg);
+        test_scenario::return_to_sender(&scenario, cap);
+    };
+
+    test_scenario::end(scenario);
+}
+
+#[test]
+fun disabled_yield_config_zeroes_live_receipt_surface() {
+    let admin = @0x1;
+    let mut scenario = test_scenario::begin(admin);
+    test_scenario::create_system_objects(&mut scenario);
+
+    {
+        let sdye_treasury = coin::create_treasury_cap_for_testing<sdye::SDYE>(test_scenario::ctx(&mut scenario));
+        entrypoints::bootstrap<usdc::USDC>(sdye_treasury, 0, 0, test_scenario::ctx(&mut scenario));
+    };
+    test_scenario::next_tx(&mut scenario, admin);
+
+    {
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let cap = test_scenario::take_from_sender<config::AdminCap>(&scenario);
+
+        entrypoints::record_live_yield_deposit(&mut v, &cfg, @0xabc, 500, 500, 1_000);
+        assert!(!entrypoints::live_yield_enabled(&v), 0);
+        assert!(!entrypoints::live_yield_position_present(&v), 0);
+        assert!(entrypoints::live_yield_last_market_id(&v) == @0x0, 0);
+        assert!(entrypoints::live_yield_last_receipt_id(&v) == @0x0, 0);
+        assert!(entrypoints::yield_receipt_id(&v) == @0x0, 0);
+
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(cfg);
+        test_scenario::return_to_sender(&scenario, cap);
+    };
+
+    test_scenario::end(scenario);
+}
+
+#[test]
+fun zero_value_hold_normalizes_receipt_to_zero() {
+    let admin = @0x1;
+    let mut scenario = test_scenario::begin(admin);
+    test_scenario::create_system_objects(&mut scenario);
+
+    {
+        let sdye_treasury = coin::create_treasury_cap_for_testing<sdye::SDYE>(test_scenario::ctx(&mut scenario));
+        entrypoints::bootstrap<usdc::USDC>(sdye_treasury, 0, 0, test_scenario::ctx(&mut scenario));
+    };
+    test_scenario::next_tx(&mut scenario, admin);
+
+    {
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let cap = test_scenario::take_from_sender<config::AdminCap>(&scenario);
+        config::set_lending_market_id(&mut cfg, &cap, @0x222);
+
+        entrypoints::record_live_yield_deposit(&mut v, &cfg, @0xabc, 500, 500, 1_000);
+        entrypoints::record_live_yield_hold(&mut v, &cfg, @0xabc, 0, 2_000);
+        assert!(!entrypoints::live_yield_position_present(&v), 0);
+        assert!(entrypoints::live_yield_last_receipt_id(&v) == @0x0, 0);
+        assert!(entrypoints::yield_receipt_id(&v) == @0x0, 0);
+
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(cfg);
+        test_scenario::return_to_sender(&scenario, cap);
+    };
+
+    test_scenario::end(scenario);
+}

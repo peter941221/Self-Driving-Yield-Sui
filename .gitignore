@@ -23,8 +23,7 @@ poc/**/dist/
 /AGENTS.md
 /MEMORY.md
 /RUNBOOK.md
-/完善清单.TXT
-/形式化与混沌工程.TXT
+/提升方案3.TXT
 
 # Private technical docs (do not push)
 /docs/
@@ -38,6 +37,8 @@ poc/**/dist/
 /sui/build/
 /sui/.trace
 /sui/.coverage_map.mvcov
+/sui/lcov.info
+/sui/traces/
 /sui/Published.toml
 
 # Local MOVE_HOME cache

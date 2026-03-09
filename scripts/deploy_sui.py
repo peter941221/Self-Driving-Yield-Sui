@@ -27,6 +27,14 @@ def run(cmd, cwd=ROOT):
     return result.stdout.strip()
 
 
+def try_run(cmd, cwd=ROOT):
+    resolved = resolve_cmd(list(cmd))
+    result = subprocess.run(resolved, cwd=cwd, capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
 def run_json(cmd, cwd=ROOT):
     output = run(cmd, cwd=cwd)
     try:
@@ -130,6 +138,15 @@ def normalize_address(value):
     if len(hex_part) > 64:
         raise SystemExit(f"Address too long: {value}")
     return "0x" + hex_part.lower().zfill(64)
+
+
+def utc_now_iso():
+    return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def current_git_commit():
+    output = try_run(["git", "rev-parse", "HEAD"])
+    return output or ""
 
 
 def move_call(package_id, module, function, args, type_args=None, gas_budget=50_000_000):
@@ -250,28 +267,34 @@ def main():
     print_step("admin cap", admin_cap_id)
 
     setters = [
-        ("set_cetus_pool_id", args.cetus_pool_id),
-        ("set_lending_market_id", args.lending_market_id),
-        ("set_perps_market_id", args.perps_market_id),
-        ("set_flashloan_provider_id", args.flashloan_provider_id),
+        ("set_cetus_pool_id", normalize_address(args.cetus_pool_id)),
+        ("set_lending_market_id", normalize_address(args.lending_market_id)),
+        ("set_perps_market_id", normalize_address(args.perps_market_id)),
+        ("set_flashloan_provider_id", normalize_address(args.flashloan_provider_id)),
     ]
     applied = {}
     for function_name, value in setters:
-        normalized_value = normalize_address(value)
-        if int(normalized_value, 16) == 0:
+        if int(value, 16) == 0:
             continue
         digest, _ = move_call(
             package_id,
             "config",
             function_name,
-            [config_id, admin_cap_id, normalized_value],
+            [config_id, admin_cap_id, value],
             gas_budget=args.gas_budget_call,
         )
-        applied[function_name] = {"value": normalized_value, "digest": digest}
-        print_step(function_name, normalized_value)
+        applied[function_name] = {"value": value, "digest": digest}
+        print_step(function_name, value)
+
+    manifest_timestamp = utc_now_iso()
+    normalized_cetus_pool_id = setters[0][1]
+    normalized_lending_market_id = setters[1][1]
+    normalized_perps_market_id = setters[2][1]
+    normalized_flashloan_provider_id = setters[3][1]
+    sealed = not args.skip_seal
 
     seal_digest = None
-    if not args.skip_seal:
+    if sealed:
         seal_digest, _ = move_call(
             package_id,
             "config",
@@ -293,14 +316,23 @@ def main():
         "publish_digest": publish_digest,
         "bootstrap_digest": bootstrap_digest,
         "seal_digest": seal_digest,
+        "published_at_utc": manifest_timestamp,
+        "git_commit": current_git_commit(),
+        "min_cycle_interval_ms": args.min_cycle_interval_ms,
+        "min_snapshot_interval_ms": args.min_snapshot_interval_ms,
+        "cetus_pool_id": normalized_cetus_pool_id,
+        "lending_market_id": normalized_lending_market_id,
+        "perps_market_id": normalized_perps_market_id,
+        "flashloan_provider_id": normalized_flashloan_provider_id,
+        "sealed": sealed,
         "config": {
             "min_cycle_interval_ms": args.min_cycle_interval_ms,
             "min_snapshot_interval_ms": args.min_snapshot_interval_ms,
-            "cetus_pool_id": args.cetus_pool_id,
-            "lending_market_id": args.lending_market_id,
-            "perps_market_id": args.perps_market_id,
-            "flashloan_provider_id": args.flashloan_provider_id,
-            "sealed": not args.skip_seal,
+            "cetus_pool_id": normalized_cetus_pool_id,
+            "lending_market_id": normalized_lending_market_id,
+            "perps_market_id": normalized_perps_market_id,
+            "flashloan_provider_id": normalized_flashloan_provider_id,
+            "sealed": sealed,
         },
         "applied_setters": applied,
     }

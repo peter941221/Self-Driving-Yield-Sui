@@ -381,39 +381,46 @@ fun cycle_never_spends_reserved_ready_withdrawals() {
 }
 
 #[test]
-fun only_unwind_requires_two_safe_cycles_to_restore() {
+fun cycle_handles_pending_need_before_ready_reservation() {
     let mut s = vault::new_state();
     let mut q = queue::new_state();
     let mut o = oracle::new();
+    let _ = vault::deposit(&mut s, 1_000);
+    vault::set_treasury_usdc_for_testing(&mut s, 100);
+    let _ = queue::enqueue(&mut q, @0x1, 200, 200, 1);
+    let (moved, bounty) = vault::cycle(&mut s, &mut q, &mut o, oracle::price_precision(), 1000, 0, 0);
+    assert!(moved <= 100, 0);
+    assert!(bounty == 0, 0);
+}
 
-    let p = oracle::price_precision();
-    let mut storm_price = p;
+#[test]
+fun cycle_moves_ready_queue_and_can_zero_bounty() {
+    let mut s = vault::new_state();
+    let mut q = queue::new_state();
+    let mut o = oracle::new();
+    let _ = vault::deposit(&mut s, 1_000);
+    vault::set_treasury_usdc_for_testing(&mut s, 200);
+    let _ = queue::enqueue(&mut q, @0x1, 200, 200, 1);
+    let (moved, bounty) = vault::cycle(&mut s, &mut q, &mut o, oracle::price_precision(), 1000, 0, 0);
+    assert!(moved <= 200, 0);
+    assert!(bounty == 0, 0);
+    assert!(vault::last_cycle_ts_ms(&s) == 1000, 0);
+}
 
-    let mut ts: u64 = 0;
-    let mut i: u64 = 0;
-    while (i < 12) {
-        ts = ts + 1000;
-        vault::cycle(&mut s, &mut q, &mut o, storm_price, ts, 0, 0);
-        storm_price = ((storm_price as u128) * 10300 / 10000) as u64;
-        i = i + 1;
-    };
-
+#[test]
+fun only_unwind_requires_two_safe_cycles_to_restore() {
+    let mut s = vault::new_state();
+    let storm = vault::regime_storm();
+    let normal = vault::regime_normal();
+    vault::apply_cycle_regime(&mut s, &storm);
     assert!(vault::is_only_unwind(&vault::risk_mode(&s)), 0);
     assert!(vault::safe_cycles_since_storm(&s) == 0, 0);
 
-    let mut guard: u64 = 0;
-    while (vault::safe_cycles_since_storm(&s) == 0) {
-        ts = ts + 1000;
-        vault::cycle(&mut s, &mut q, &mut o, storm_price, ts, 0, 0);
-        guard = guard + 1;
-        assert!(guard <= 16, 0);
-    };
-
+    vault::apply_cycle_regime_with_guards(&mut s, &normal, 0, 0, 0);
     assert!(vault::is_only_unwind(&vault::risk_mode(&s)), 0);
     assert!(vault::safe_cycles_since_storm(&s) == 1, 0);
 
-    ts = ts + 1000;
-    vault::cycle(&mut s, &mut q, &mut o, storm_price, ts, 0, 0);
+    vault::apply_cycle_regime_with_guards(&mut s, &normal, 0, 0, 0);
     assert!(!vault::is_only_unwind(&vault::risk_mode(&s)), 0);
     assert!(vault::safe_cycles_since_storm(&s) == vault::safe_cycles_to_restore(), 0);
 }
@@ -447,4 +454,215 @@ fun set_risk_mode_restores_safe_counter_when_back_to_normal() {
     assert!(!vault::is_only_unwind(&vault::risk_mode(&s)), 0);
     assert!(vault::safe_cycles_since_storm(&s) == vault::safe_cycles_to_restore(), 0);
     assert!(vault::max_bounty_bps() == 5, 0);
+}
+
+#[test]
+fun guarded_restore_requires_low_queue_and_treasury_coverage() {
+    let mut s = vault::new_state();
+    let storm = vault::regime_storm();
+    let normal = vault::regime_normal();
+
+    vault::apply_cycle_regime(&mut s, &storm);
+    assert!(vault::is_only_unwind(&vault::risk_mode(&s)), 0);
+    assert!(vault::safe_cycles_since_storm(&s) == 0, 0);
+
+    vault::apply_cycle_regime_with_guards(&mut s, &normal, 0, 2_000, 1);
+    assert!(vault::is_only_unwind(&vault::risk_mode(&s)), 0);
+    assert!(vault::safe_cycles_since_storm(&s) == 0, 0);
+
+    vault::set_treasury_usdc_for_testing(&mut s, 100);
+    vault::apply_cycle_regime_with_guards(&mut s, &normal, 0, 500, 100);
+    assert!(vault::is_only_unwind(&vault::risk_mode(&s)), 0);
+    assert!(vault::safe_cycles_since_storm(&s) == 1, 0);
+
+    vault::apply_cycle_regime_with_guards(&mut s, &normal, 0, 500, 100);
+    assert!(!vault::is_only_unwind(&vault::risk_mode(&s)), 0);
+    assert!(vault::safe_cycles_since_storm(&s) == vault::safe_cycles_to_restore(), 0);
+}
+
+#[test]
+fun guarded_restore_resets_when_queue_pressure_stays_high() {
+    let mut s = vault::new_state();
+    let storm = vault::regime_storm();
+    let normal = vault::regime_normal();
+    vault::apply_cycle_regime(&mut s, &storm);
+    vault::apply_cycle_regime_with_guards(&mut s, &normal, 0, 500, 0);
+    assert!(vault::safe_cycles_since_storm(&s) == 1, 0);
+    vault::apply_cycle_regime_with_guards(&mut s, &normal, 0, 2_000, 1);
+    assert!(vault::is_only_unwind(&vault::risk_mode(&s)), 0);
+    assert!(vault::safe_cycles_since_storm(&s) == 0, 0);
+}
+
+#[test]
+fun guarded_restore_resets_when_effective_vol_stays_high() {
+    let mut s = vault::new_state();
+    let storm = vault::regime_storm();
+    let normal = vault::regime_normal();
+    vault::apply_cycle_regime(&mut s, &storm);
+    vault::apply_cycle_regime_with_guards(&mut s, &normal, 0, 0, 0);
+    assert!(vault::safe_cycles_since_storm(&s) == 1, 0);
+    vault::apply_cycle_regime_with_guards(&mut s, &normal, oracle::calm_exit_vol_bps(), 0, 0);
+    assert!(vault::is_only_unwind(&vault::risk_mode(&s)), 0);
+    assert!(vault::safe_cycles_since_storm(&s) == 0, 0);
+}
+
+#[test]
+fun guarded_restore_resets_when_treasury_stays_below_reserve_and_queue_exists() {
+    let mut s = vault::new_state();
+    let storm = vault::regime_storm();
+    let normal = vault::regime_normal();
+    vault::apply_cycle_regime(&mut s, &storm);
+    vault::set_treasury_usdc_for_testing(&mut s, 50);
+    vault::apply_cycle_regime_with_guards(&mut s, &normal, 0, 500, 100);
+    assert!(vault::is_only_unwind(&vault::risk_mode(&s)), 0);
+    assert!(vault::safe_cycles_since_storm(&s) == 0, 0);
+}
+
+#[test]
+fun guarded_restore_allows_zero_queue_without_treasury_cover() {
+    let mut s = vault::new_state();
+    let storm = vault::regime_storm();
+    let normal = vault::regime_normal();
+    vault::apply_cycle_regime(&mut s, &storm);
+    vault::set_treasury_usdc_for_testing(&mut s, 0);
+    vault::apply_cycle_regime_with_guards(&mut s, &normal, 0, 0, 1000);
+    assert!(vault::safe_cycles_since_storm(&s) == 1, 0);
+}
+
+#[test]
+fun guarded_restore_normal_mode_keeps_counter_full() {
+    let mut s = vault::new_state();
+    let normal = vault::regime_normal();
+    vault::apply_cycle_regime_with_guards(&mut s, &normal, 0, 0, 0);
+    assert!(!vault::is_only_unwind(&vault::risk_mode(&s)), 0);
+    assert!(vault::safe_cycles_since_storm(&s) == vault::safe_cycles_to_restore(), 0);
+    assert!(vault::restore_max_queue_pressure_bps() == 1000, 0);
+}
+
+#[test]
+fun vault_cycle_with_confidence_and_plans_cover_direct_helpers() {
+    let mut s = vault::new_state();
+    let mut q = queue::new_state();
+    let mut o = oracle::new();
+
+    let shares = vault::deposit(&mut s, 10_000);
+    assert!(shares == 10_000, 0);
+    assert!(vault::total_assets(&s) == 10_000, 0);
+    assert!(vault::total_shares(&s) == 10_000, 0);
+    assert!(vault::treasury_usdc(&s) == 10_000, 0);
+    assert!(vault::last_cycle_ts_ms(&s) == 0, 0);
+
+    let (moved, bounty) = vault::cycle_with_confidence(
+        &mut s,
+        &mut q,
+        &mut o,
+        oracle::price_precision(),
+        15,
+        1000,
+        0,
+        0,
+    );
+    assert!(moved == 0, 0);
+    assert!(bounty == vault::max_bounty_bps(), 0);
+    assert!(vault::last_cycle_ts_ms(&s) == 1000, 0);
+    assert!(oracle::current_confidence_bps(&o) == 15, 0);
+
+    let p1 = vault::request_withdraw(&mut s, &mut q, @0x1, 1_000, 2000);
+    assert!(vault::plan_is_instant(&p1), 0);
+    assert!(!vault::plan_is_queued(&p1), 0);
+    assert!(vault::instant_usdc_out(&p1) > 0, 0);
+
+    vault::set_treasury_usdc_for_testing(&mut s, 0);
+    let p2 = vault::request_withdraw(&mut s, &mut q, @0x1, 1_000, 3000);
+    assert!(vault::plan_is_queued(&p2), 0);
+    assert!(!vault::plan_is_instant(&p2), 0);
+    assert!(vault::queued_request_id(&p2) == 0, 0);
+    assert!(vault::queued_usdc_amount(&p2) > 0, 0);
+}
+
+#[test]
+fun cycle_bounty_helper_covers_zero_and_bound_cases() {
+    assert!(vault::compute_cycle_bounty(0, 10_000) == 0, 0);
+    assert!(vault::compute_cycle_bounty(10, 0) == 0, 0);
+    assert!(vault::compute_cycle_bounty(100, 10_000) == 5, 0);
+    assert!(vault::compute_cycle_bounty(3, 10_000) == 3, 0);
+}
+
+#[test]
+fun vault_wrapper_helpers_cover_regime_and_risk_aliases() {
+    let calm = vault::regime_calm();
+    let normal = vault::regime_normal();
+    let storm = vault::regime_storm();
+    assert!(vault::is_regime_calm(&calm), 0);
+    assert!(vault::is_regime_normal(&normal), 0);
+    assert!(vault::is_regime_storm(&storm), 0);
+
+    let rn = vault::risk_normal();
+    let ru = vault::risk_only_unwind();
+    assert!(!vault::is_only_unwind(&rn), 0);
+    assert!(vault::is_only_unwind(&ru), 0);
+}
+
+#[test]
+fun guarded_restore_storm_branch_forces_only_unwind() {
+    let mut s = vault::new_state();
+    vault::apply_cycle_regime_with_guards(&mut s, &vault::regime_storm(), 999, 9_999, 9_999);
+    assert!(vault::is_only_unwind(&vault::risk_mode(&s)), 0);
+    assert!(vault::safe_cycles_since_storm(&s) == 0, 0);
+}
+
+#[test]
+fun redeem_helper_matches_expected_floor_math() {
+    let out = vault::calc_usdc_to_redeem(250, 1_000, 1_000);
+    assert!(out == 250, 0);
+    let out2 = vault::calc_usdc_to_redeem(333, 1_000, 777);
+    assert!(out2 == 428, 0);
+}
+
+#[test]
+fun direct_apply_cycle_regime_helper_covers_storm_and_normal() {
+    let mut s = vault::new_state();
+    vault::apply_cycle_regime(&mut s, &vault::regime_storm());
+    assert!(vault::is_only_unwind(&vault::risk_mode(&s)), 0);
+    assert!(vault::safe_cycles_since_storm(&s) == 0, 0);
+    vault::apply_cycle_regime(&mut s, &vault::regime_normal());
+    assert!(vault::is_only_unwind(&vault::risk_mode(&s)), 0);
+    assert!(vault::safe_cycles_since_storm(&s) == 1, 0);
+}
+
+#[test]
+fun direct_claim_success_path_updates_totals() {
+    let mut s = vault::new_state();
+    let mut q = queue::new_state();
+    let _ = vault::deposit(&mut s, 1_000);
+    vault::set_treasury_usdc_for_testing(&mut s, 1_000);
+    let request_id = queue::enqueue(&mut q, @0x1, 200, 200, 1);
+    let mut treasury_after_reserve = 1_000;
+    let _moved = queue::process_queue(&mut q, &mut treasury_after_reserve);
+    let usdc_out = vault::claim(&mut s, &mut q, request_id, @0x1);
+    assert!(usdc_out == 200, 0);
+    assert!(vault::treasury_usdc(&s) == 800, 0);
+    assert!(vault::total_assets(&s) == 800, 0);
+    assert!(vault::total_shares(&s) == 800, 0);
+}
+
+#[test, expected_failure(abort_code = errors::E_INVALID_PLAN, location = self_driving_yield::vault)]
+fun queued_usdc_amount_aborts_on_instant_plan() {
+    let mut s = vault::new_state();
+    let mut q = queue::new_state();
+    let _ = vault::deposit(&mut s, 100);
+    let plan = vault::request_withdraw(&mut s, &mut q, @0x1, 10, 1);
+    assert!(vault::plan_is_instant(&plan), 0);
+    let _ = vault::queued_usdc_amount(&plan);
+}
+
+#[test]
+fun queued_usdc_amount_returns_value_for_queued_plan() {
+    let mut s = vault::new_state();
+    let mut q = queue::new_state();
+    let _ = vault::deposit(&mut s, 1_000);
+    vault::set_treasury_usdc_for_testing(&mut s, 0);
+    let plan = vault::request_withdraw(&mut s, &mut q, @0x1, 200, 1);
+    assert!(vault::plan_is_queued(&plan), 0);
+    assert!(vault::queued_usdc_amount(&plan) > 0, 0);
 }

@@ -8,9 +8,11 @@ use self_driving_yield::types;
 
 const MAX_BOUNTY_BPS: u64 = 5;
 const SAFE_CYCLES_TO_RESTORE: u64 = 2;
+const RESTORE_MAX_QUEUE_PRESSURE_BPS: u64 = 1000;
 
 public fun max_bounty_bps(): u64 { MAX_BOUNTY_BPS }
 public fun safe_cycles_to_restore(): u64 { SAFE_CYCLES_TO_RESTORE }
+public fun restore_max_queue_pressure_bps(): u64 { RESTORE_MAX_QUEUE_PRESSURE_BPS }
 
 public fun regime_calm(): types::Regime { types::regime_calm() }
 public fun regime_normal(): types::Regime { types::regime_normal() }
@@ -97,6 +99,40 @@ public fun apply_cycle_regime(s: &mut VaultState, regime: &types::Regime) {
     };
 }
 
+public fun apply_cycle_regime_with_guards(
+    s: &mut VaultState,
+    regime: &types::Regime,
+    effective_volatility_bps: u64,
+    queue_pressure_bps: u64,
+    reserve_target_usdc: u64,
+) {
+    if (types::is_regime_storm(regime)) {
+        s.risk_mode = types::risk_only_unwind();
+        s.safe_cycles_since_storm = 0;
+        return
+    };
+
+    if (types::is_only_unwind(&s.risk_mode)) {
+        let restore_safe =
+            effective_volatility_bps < oracle::calm_exit_vol_bps() &&
+            queue_pressure_bps <= RESTORE_MAX_QUEUE_PRESSURE_BPS &&
+            (s.treasury_usdc >= reserve_target_usdc || queue_pressure_bps == 0);
+        if (restore_safe) {
+            s.safe_cycles_since_storm = math::safe_add(s.safe_cycles_since_storm, 1);
+            if (s.safe_cycles_since_storm >= SAFE_CYCLES_TO_RESTORE) {
+                s.risk_mode = types::risk_normal();
+                s.safe_cycles_since_storm = SAFE_CYCLES_TO_RESTORE;
+            }
+        } else {
+            s.risk_mode = types::risk_only_unwind();
+            s.safe_cycles_since_storm = 0;
+        }
+    } else {
+        s.risk_mode = types::risk_normal();
+        s.safe_cycles_since_storm = SAFE_CYCLES_TO_RESTORE;
+    }
+}
+
 public fun compute_cycle_bounty(remaining: u64, total_assets: u64): u64 {
     let max_bounty = math::mul_div(total_assets, MAX_BOUNTY_BPS, 10000);
     if (remaining < max_bounty) { remaining } else { max_bounty }
@@ -131,6 +167,19 @@ public fun cycle(
     min_cycle_interval_ms: u64,
     min_snapshot_interval_ms: u64,
 ): (u64, u64) {
+    cycle_with_confidence(s, q, o, spot_price, 0, ts_ms, min_cycle_interval_ms, min_snapshot_interval_ms)
+}
+
+public fun cycle_with_confidence(
+    s: &mut VaultState,
+    q: &mut queue::QueueState,
+    o: &mut oracle::OracleState,
+    spot_price: u64,
+    confidence_bps: u64,
+    ts_ms: u64,
+    min_cycle_interval_ms: u64,
+    min_snapshot_interval_ms: u64,
+): (u64, u64) {
     // Phase 0: pre-checks (interval gate).
     if (s.last_cycle_ts_ms != 0) {
         assert!(
@@ -140,14 +189,20 @@ public fun cycle(
     };
 
     // Phase 2: record snapshot and infer regime.
-    let _ = oracle::record_snapshot_with_ts(o, spot_price, ts_ms, min_snapshot_interval_ms);
+    let _ = oracle::record_snapshot_with_confidence_with_ts(o, spot_price, confidence_bps, ts_ms, min_snapshot_interval_ms);
     let regime = oracle::current_regime(o);
 
+    let ready_usdc = queue::total_ready_usdc(q);
+    let pending_usdc = queue::total_pending_usdc(q);
+    let (_, _, buffer_bps) = types::get_allocation(&regime);
+    let reserve_target = types::reserve_target_usdc(buffer_bps, s.total_assets, ready_usdc, pending_usdc);
+    let queue_pressure_bps = types::queue_pressure_score_bps(s.total_assets, ready_usdc, pending_usdc);
+
     // Phase 4: minimal risk control (storm => OnlyUnwind, restore only after N safe cycles).
-    apply_cycle_regime(s, &regime);
+    apply_cycle_regime_with_guards(s, &regime, oracle::current_effective_volatility_bps(o), queue_pressure_bps, reserve_target);
 
     // Phase 6: process withdrawal queue, reserving ready balances.
-    let reserved_ready = queue::total_ready_usdc(q);
+    let reserved_ready = ready_usdc;
     assert!(s.treasury_usdc >= reserved_ready, errors::e_overflow());
     let mut remaining = s.treasury_usdc - reserved_ready;
     let moved = queue::process_queue(q, &mut remaining);

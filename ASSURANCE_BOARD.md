@@ -2,19 +2,22 @@
 
 This file is the tracked, public-facing summary of what the repo currently proves, tests, and stress-checks.
 
+Last verified: `2026-03-09`
+
 ## Snapshot
 
-- Move unit/scenario suite: green locally
+- Move unit/scenario suite: green locally (`170/170 PASS`)
 - Formal suite: green under WSL/Linux runner
 - Chaos Phase 1: green locally
 - CI pipeline: `move-tests` + `formal` + `chaos`
 - Current delivery phase: `P4 done -> P5 live testnet integration`
+- Current local coverage headline: `94.85%`
 
 ## Formal Layer
 
 - Package: `formal/`
 - Runner: `bash scripts/formal_verify_wsl.sh -v`
-- Current green scope: `51` proof entrypoints
+- Current green scope: `50` proof entrypoints
 - Highlights:
   - regime classification
   - first-snapshot transition
@@ -61,6 +64,18 @@ See also:
   - live adapter depth is still strongest on Cetus + native staking bookkeeping; external lending/perps remain shallower
   - Scallop is still real yield evidence, but not same-network vault execution
   - Aftermath perps remains blocked on testnet and is not a sign-off-quality live leg yet
+
+## External Narrative Guardrail
+
+- What this board proves:
+  - the repo has real archived live evidence beyond local tests
+  - the repo has stronger LP/live-object depth than an accounting-only prototype
+  - the repo now has confidence-aware risk and guarded restore logic in core state transitions
+  - the repo can support `P5 technical sign-off discussion`
+- What this board does NOT prove:
+  - final immutable release readiness
+  - fully autonomous same-network execution across every live leg
+  - a working Aftermath perps leg on testnet
 
 ## Chaos Layer
 

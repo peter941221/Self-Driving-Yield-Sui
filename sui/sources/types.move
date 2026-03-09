@@ -15,6 +15,17 @@ const STRATEGY_ACTION_HOLD: u64 = 0;
 const STRATEGY_ACTION_DEPLOY: u64 = 1;
 const STRATEGY_ACTION_REDUCE: u64 = 2;
 const STRATEGY_ACTION_CLOSE: u64 = 3;
+const LP_ACTION_HOLD: u64 = 0;
+const LP_ACTION_OPEN: u64 = 1;
+const LP_ACTION_ADD: u64 = 2;
+const LP_ACTION_REMOVE: u64 = 3;
+const LP_ACTION_CLOSE: u64 = 4;
+const STRATEGY_REASON_HOLD: u64 = 0;
+const STRATEGY_REASON_TARGET_EXPAND: u64 = 1;
+const STRATEGY_REASON_TARGET_SHRINK: u64 = 2;
+const STRATEGY_REASON_TARGET_CLOSE: u64 = 3;
+const STRATEGY_REASON_ONLY_UNWIND: u64 = 4;
+const STRATEGY_REASON_QUEUE_PRESSURE: u64 = 5;
 
 public enum Regime has copy, drop, store {
     Calm,
@@ -69,6 +80,17 @@ public fun strategy_action_hold(): u64 { STRATEGY_ACTION_HOLD }
 public fun strategy_action_deploy(): u64 { STRATEGY_ACTION_DEPLOY }
 public fun strategy_action_reduce(): u64 { STRATEGY_ACTION_REDUCE }
 public fun strategy_action_close(): u64 { STRATEGY_ACTION_CLOSE }
+public fun lp_action_hold(): u64 { LP_ACTION_HOLD }
+public fun lp_action_open(): u64 { LP_ACTION_OPEN }
+public fun lp_action_add(): u64 { LP_ACTION_ADD }
+public fun lp_action_remove(): u64 { LP_ACTION_REMOVE }
+public fun lp_action_close(): u64 { LP_ACTION_CLOSE }
+public fun strategy_reason_hold(): u64 { STRATEGY_REASON_HOLD }
+public fun strategy_reason_target_expand(): u64 { STRATEGY_REASON_TARGET_EXPAND }
+public fun strategy_reason_target_shrink(): u64 { STRATEGY_REASON_TARGET_SHRINK }
+public fun strategy_reason_target_close(): u64 { STRATEGY_REASON_TARGET_CLOSE }
+public fun strategy_reason_only_unwind(): u64 { STRATEGY_REASON_ONLY_UNWIND }
+public fun strategy_reason_queue_pressure(): u64 { STRATEGY_REASON_QUEUE_PRESSURE }
 
 public fun adjusted_buffer_bps(base_buffer_bps: u64, total_assets: u64, queued_need: u64): u64 {
     if (total_assets == 0 || queued_need == 0) {
@@ -190,6 +212,68 @@ public fun strategy_leg_action(current_value: u64, target_value: u64, position_p
         STRATEGY_ACTION_REDUCE
     } else {
         STRATEGY_ACTION_HOLD
+    }
+}
+
+public fun lp_strategy_action(current_value: u64, target_value: u64, position_present: bool): u64 {
+    if (target_value == 0) {
+        if (current_value > 0 || position_present) {
+            LP_ACTION_CLOSE
+        } else {
+            LP_ACTION_HOLD
+        }
+    } else if (!position_present) {
+        // Live LP state machine: when a non-zero LP budget is desired but no live position exists,
+        // the next live action is OPEN, unless we are over-target and should first shrink the LP budget.
+        if (current_value > target_value) { LP_ACTION_REMOVE } else { LP_ACTION_OPEN }
+    } else if (current_value < target_value) {
+        LP_ACTION_ADD
+    } else if (current_value > target_value) {
+        LP_ACTION_REMOVE
+    } else {
+        LP_ACTION_HOLD
+    }
+}
+
+public fun strategy_leg_reason(action: u64): u64 {
+    if (action == STRATEGY_ACTION_DEPLOY) {
+        STRATEGY_REASON_TARGET_EXPAND
+    } else if (action == STRATEGY_ACTION_REDUCE) {
+        STRATEGY_REASON_TARGET_SHRINK
+    } else if (action == STRATEGY_ACTION_CLOSE) {
+        STRATEGY_REASON_TARGET_CLOSE
+    } else {
+        STRATEGY_REASON_HOLD
+    }
+}
+
+public fun lp_strategy_reason(
+    position_present: bool,
+    only_unwind: bool,
+    treasury_usdc: u64,
+    ready_usdc: u64,
+    pending_usdc: u64,
+    current_value: u64,
+    target_value: u64,
+): u64 {
+    if (position_present) {
+        if (only_unwind) {
+            return STRATEGY_REASON_ONLY_UNWIND
+        };
+        if (math::safe_add(ready_usdc, pending_usdc) > treasury_usdc) {
+            return STRATEGY_REASON_QUEUE_PRESSURE
+        }
+    };
+
+    let action = lp_strategy_action(current_value, target_value, position_present);
+    if (action == LP_ACTION_OPEN || action == LP_ACTION_ADD) {
+        STRATEGY_REASON_TARGET_EXPAND
+    } else if (action == LP_ACTION_REMOVE) {
+        STRATEGY_REASON_TARGET_SHRINK
+    } else if (action == LP_ACTION_CLOSE) {
+        STRATEGY_REASON_TARGET_CLOSE
+    } else {
+        STRATEGY_REASON_HOLD
     }
 }
 

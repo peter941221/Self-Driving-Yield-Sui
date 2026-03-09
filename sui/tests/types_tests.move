@@ -82,4 +82,18 @@ fun strategy_planner_helpers_cover_core_actions() {
     assert!(types::should_close_live_position(true, true, 1_000, 0, 0), 0);
     assert!(types::should_close_live_position(true, false, 1_000, 800, 300), 0);
     assert!(!types::should_close_live_position(false, true, 0, 1, 1), 0);
+
+    assert!(types::lp_strategy_action(0, 1_000, false) == types::lp_action_open(), 0);
+    // Even if accounting already moved the LP balance up to target, no-position => OPEN is still required.
+    assert!(types::lp_strategy_action(1_000, 1_000, false) == types::lp_action_open(), 0);
+    assert!(types::lp_strategy_action(500, 1_000, true) == types::lp_action_add(), 0);
+    assert!(types::lp_strategy_action(2_000, 1_000, true) == types::lp_action_remove(), 0);
+    assert!(types::lp_strategy_action(0, 0, true) == types::lp_action_close(), 0);
+    assert!(types::lp_strategy_action(1_000, 1_000, true) == types::lp_action_hold(), 0);
+
+    assert!(types::lp_strategy_reason(true, true, 1_000, 0, 0, 500, 0) == types::strategy_reason_only_unwind(), 0);
+    assert!(types::lp_strategy_reason(true, false, 1_000, 800, 300, 500, 400) == types::strategy_reason_queue_pressure(), 0);
+    assert!(types::lp_strategy_reason(false, false, 1_000, 0, 0, 0, 1_000) == types::strategy_reason_target_expand(), 0);
+    assert!(types::lp_strategy_reason(true, false, 1_000, 0, 0, 2_000, 1_000) == types::strategy_reason_target_shrink(), 0);
+    assert!(types::lp_strategy_reason(true, false, 1_000, 0, 0, 0, 0) == types::strategy_reason_target_close(), 0);
 }

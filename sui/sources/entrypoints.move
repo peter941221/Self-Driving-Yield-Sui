@@ -87,8 +87,11 @@ public struct CycleEvent has copy, drop, store {
 
 public struct StrategyPlannedEvent has copy, drop, store {
     lp_action: u64,
+    lp_reason: u64,
     yield_action: u64,
+    yield_reason: u64,
     hedge_action: u64,
+    hedge_reason: u64,
     target_lp_usdc: u64,
     target_yield_usdc: u64,
     target_hedge_usdc: u64,
@@ -96,17 +99,29 @@ public struct StrategyPlannedEvent has copy, drop, store {
     current_yield_usdc: u64,
     current_hedge_usdc: u64,
     reserve_target_usdc: u64,
+    queue_pressure_bps: u64,
     queued_need_usdc: u64,
+    oracle_snapshot_count: u64,
+    oracle_volatility_bps: u64,
+    oracle_confidence_bps: u64,
+    oracle_effective_volatility_bps: u64,
     only_unwind: bool,
     live_cetus_position_present: bool,
+    live_cetus_position_id: address,
+    live_cetus_last_action_code: u64,
+    live_cetus_amount_a: u64,
+    live_cetus_amount_b: u64,
     live_yield_position_present: bool,
     live_hedge_position_present: bool,
 }
 
 public struct StrategyPlan has copy, drop, store {
     lp_action: u64,
+    lp_reason: u64,
     yield_action: u64,
+    yield_reason: u64,
     hedge_action: u64,
+    hedge_reason: u64,
     target_lp_usdc: u64,
     target_yield_usdc: u64,
     target_hedge_usdc: u64,
@@ -114,9 +129,18 @@ public struct StrategyPlan has copy, drop, store {
     current_yield_usdc: u64,
     current_hedge_usdc: u64,
     reserve_target_usdc: u64,
+    queue_pressure_bps: u64,
     queued_need_usdc: u64,
+    oracle_snapshot_count: u64,
+    oracle_volatility_bps: u64,
+    oracle_confidence_bps: u64,
+    oracle_effective_volatility_bps: u64,
     only_unwind: bool,
     live_cetus_position_present: bool,
+    live_cetus_position_id: address,
+    live_cetus_last_action_code: u64,
+    live_cetus_amount_a: u64,
+    live_cetus_amount_b: u64,
     live_yield_position_present: bool,
     live_hedge_position_present: bool,
 }
@@ -129,6 +153,8 @@ const LIVE_CETUS_ACTION_NONE: u64 = 0;
 const LIVE_CETUS_ACTION_OPEN: u64 = 1;
 const LIVE_CETUS_ACTION_HOLD: u64 = 2;
 const LIVE_CETUS_ACTION_CLOSE: u64 = 3;
+const LIVE_CETUS_ACTION_ADD: u64 = 4;
+const LIVE_CETUS_ACTION_REMOVE: u64 = 5;
 
 const LIVE_YIELD_ACTION_NONE: u64 = 0;
 const LIVE_YIELD_ADDRESS_MARKET_IDX: u64 = 0;
@@ -288,6 +314,42 @@ public(package) fun record_cetus_live_snapshot<BASE>(
     v.live_cetus_last_principal_b = amount_b;
     v.live_cetus_last_snapshot_ts_ms = ts_ms;
     v.live_cetus_last_action_code = LIVE_CETUS_ACTION_HOLD;
+}
+
+public(package) fun record_cetus_live_add<BASE>(
+    v: &mut Vault<BASE>,
+    cfg: &config::Config,
+    position_id: address,
+    amount_a: u64,
+    amount_b: u64,
+    ts_ms: u64,
+) {
+    sync_cetus_live_presence(v, cfg);
+    v.live_cetus_enabled = cetus_amm::is_available(cfg);
+    v.live_cetus_position_present = true;
+    v.live_cetus_last_position_id = position_id;
+    v.live_cetus_last_principal_a = amount_a;
+    v.live_cetus_last_principal_b = amount_b;
+    v.live_cetus_last_snapshot_ts_ms = ts_ms;
+    v.live_cetus_last_action_code = LIVE_CETUS_ACTION_ADD;
+}
+
+public(package) fun record_cetus_live_remove<BASE>(
+    v: &mut Vault<BASE>,
+    cfg: &config::Config,
+    position_id: address,
+    amount_a: u64,
+    amount_b: u64,
+    ts_ms: u64,
+) {
+    sync_cetus_live_presence(v, cfg);
+    v.live_cetus_enabled = cetus_amm::is_available(cfg);
+    v.live_cetus_position_present = true;
+    v.live_cetus_last_position_id = position_id;
+    v.live_cetus_last_principal_a = amount_a;
+    v.live_cetus_last_principal_b = amount_b;
+    v.live_cetus_last_snapshot_ts_ms = ts_ms;
+    v.live_cetus_last_action_code = LIVE_CETUS_ACTION_REMOVE;
 }
 
 public(package) fun record_cetus_live_close<BASE>(
@@ -501,12 +563,14 @@ fun build_strategy_plan<BASE>(
     q: &queue::WithdrawalQueue,
     cfg: &config::Config,
 ): StrategyPlan {
+    let total_assets = vault::total_assets(&v.state);
     let ready_usdc = queue::total_ready_usdc(queue::state(q));
     let pending_usdc = queue::total_pending_usdc(queue::state(q));
     let queued_need = math::safe_add(ready_usdc, pending_usdc);
+    let queue_pressure_bps = types::queue_pressure_score_bps(total_assets, ready_usdc, pending_usdc);
     let regime = oracle::current_regime(&v.oracle);
     let (_, _, buffer_bps) = vault::get_allocation(&regime);
-    let reserve_target = types::reserve_target_usdc(buffer_bps, vault::total_assets(&v.state), ready_usdc, pending_usdc);
+    let reserve_target = types::reserve_target_usdc(buffer_bps, total_assets, ready_usdc, pending_usdc);
     let (target_lp, target_yield, target_hedge) = target_strategy_mix(v, q, cfg);
     let current_lp = balance::value(&v.cetus_balance);
     let current_yield = balance::value(&v.yield_balance);
@@ -517,17 +581,23 @@ fun build_strategy_plan<BASE>(
     let hedge_live_present = hedge_position_present(v);
     let lp_should_close = types::should_close_live_position(lp_position_present, only_unwind, treasury_usdc(v), ready_usdc, pending_usdc);
     let lp_action = if (lp_should_close) {
-        types::strategy_action_close()
+        types::lp_action_close()
     } else {
-        types::strategy_leg_action(current_lp, target_lp, lp_position_present)
+        types::lp_strategy_action(current_lp, target_lp, lp_position_present)
     };
+    let lp_reason = types::lp_strategy_reason(lp_position_present, only_unwind, treasury_usdc(v), ready_usdc, pending_usdc, current_lp, target_lp);
     let yield_action = types::strategy_leg_action(current_yield, target_yield, yield_position_present);
+    let yield_reason = types::strategy_leg_reason(yield_action);
     let hedge_action = types::strategy_leg_action(current_hedge, target_hedge, hedge_live_present);
+    let hedge_reason = types::strategy_leg_reason(hedge_action);
 
     StrategyPlan {
         lp_action,
+        lp_reason,
         yield_action,
+        yield_reason,
         hedge_action,
+        hedge_reason,
         target_lp_usdc: target_lp,
         target_yield_usdc: target_yield,
         target_hedge_usdc: target_hedge,
@@ -535,9 +605,18 @@ fun build_strategy_plan<BASE>(
         current_yield_usdc: current_yield,
         current_hedge_usdc: current_hedge,
         reserve_target_usdc: reserve_target,
+        queue_pressure_bps,
         queued_need_usdc: queued_need,
+        oracle_snapshot_count: oracle::snapshot_count(&v.oracle),
+        oracle_volatility_bps: oracle::current_volatility_bps(&v.oracle),
+        oracle_confidence_bps: oracle::current_confidence_bps(&v.oracle),
+        oracle_effective_volatility_bps: oracle::current_effective_volatility_bps(&v.oracle),
         only_unwind,
         live_cetus_position_present: lp_position_present,
+        live_cetus_position_id: if (lp_position_present) { stored_cetus_position_id(v) } else { @0x0 },
+        live_cetus_last_action_code: v.live_cetus_last_action_code,
+        live_cetus_amount_a: v.live_cetus_last_principal_a,
+        live_cetus_amount_b: v.live_cetus_last_principal_b,
         live_yield_position_present: yield_position_present,
         live_hedge_position_present: hedge_live_present,
     }
@@ -546,8 +625,11 @@ fun build_strategy_plan<BASE>(
 fun emit_strategy_plan_event(plan: &StrategyPlan) {
     event::emit(StrategyPlannedEvent {
         lp_action: plan.lp_action,
+        lp_reason: plan.lp_reason,
         yield_action: plan.yield_action,
+        yield_reason: plan.yield_reason,
         hedge_action: plan.hedge_action,
+        hedge_reason: plan.hedge_reason,
         target_lp_usdc: plan.target_lp_usdc,
         target_yield_usdc: plan.target_yield_usdc,
         target_hedge_usdc: plan.target_hedge_usdc,
@@ -555,9 +637,18 @@ fun emit_strategy_plan_event(plan: &StrategyPlan) {
         current_yield_usdc: plan.current_yield_usdc,
         current_hedge_usdc: plan.current_hedge_usdc,
         reserve_target_usdc: plan.reserve_target_usdc,
+        queue_pressure_bps: plan.queue_pressure_bps,
         queued_need_usdc: plan.queued_need_usdc,
+        oracle_snapshot_count: plan.oracle_snapshot_count,
+        oracle_volatility_bps: plan.oracle_volatility_bps,
+        oracle_confidence_bps: plan.oracle_confidence_bps,
+        oracle_effective_volatility_bps: plan.oracle_effective_volatility_bps,
         only_unwind: plan.only_unwind,
         live_cetus_position_present: plan.live_cetus_position_present,
+        live_cetus_position_id: plan.live_cetus_position_id,
+        live_cetus_last_action_code: plan.live_cetus_last_action_code,
+        live_cetus_amount_a: plan.live_cetus_amount_a,
+        live_cetus_amount_b: plan.live_cetus_amount_b,
         live_yield_position_present: plan.live_yield_position_present,
         live_hedge_position_present: plan.live_hedge_position_present,
     });
@@ -608,7 +699,7 @@ fun rebalance_strategy_accounting<BASE>(
     };
 
     vault::set_treasury_usdc_for_testing(&mut v.state, balance::value(&v.treasury));
-    if (plan.live_cetus_position_present && plan.lp_action == types::strategy_action_hold()) {
+    if (plan.live_cetus_position_present && plan.lp_action == types::lp_action_hold()) {
         record_cetus_live_hold(v, cfg, ts_ms)
     };
     sync_strategy_metadata(v, cfg, ts_ms);
@@ -636,7 +727,23 @@ public(package) fun should_close_live_cetus_from_strategy<BASE>(
     cfg: &config::Config,
 ): bool {
     let plan = build_strategy_plan(v, q, cfg);
-    plan.lp_action == types::strategy_action_close()
+    plan.lp_action == types::lp_action_close()
+}
+
+public(package) fun strategy_plan_lp_for_testing<BASE>(
+    v: &Vault<BASE>,
+    q: &queue::WithdrawalQueue,
+    cfg: &config::Config,
+): (u64, u64, u64, u64, u64, u64) {
+    let plan = build_strategy_plan(v, q, cfg);
+    (
+        plan.lp_action,
+        plan.lp_reason,
+        plan.current_lp_usdc,
+        plan.target_lp_usdc,
+        plan.reserve_target_usdc,
+        plan.queue_pressure_bps,
+    )
 }
 
 public fun has_cetus_position<BASE>(v: &Vault<BASE>): bool { v.cetus_deployed_usdc > 0 }
@@ -654,6 +761,11 @@ public fun stored_cetus_position_id<BASE>(v: &Vault<BASE>): address {
 public(package) fun borrow_stored_cetus_position<BASE>(v: &Vault<BASE>): &Position {
     assert!(has_stored_cetus_position(v), errors::e_missing_object());
     dynamic_object_field::borrow<CetusPositionKey, Position>(&v.id, cetus_position_key())
+}
+
+public(package) fun borrow_stored_cetus_position_mut<BASE>(v: &mut Vault<BASE>): &mut Position {
+    assert!(has_stored_cetus_position(v), errors::e_missing_object());
+    dynamic_object_field::borrow_mut<CetusPositionKey, Position>(&mut v.id, cetus_position_key())
 }
 
 public fun store_cetus_position<BASE>(v: &mut Vault<BASE>, position_nft: Position) {
@@ -694,6 +806,11 @@ public fun live_cetus_last_principal_a<BASE>(v: &Vault<BASE>): u64 { v.live_cetu
 public fun live_cetus_last_principal_b<BASE>(v: &Vault<BASE>): u64 { v.live_cetus_last_principal_b }
 public fun live_cetus_last_snapshot_ts_ms<BASE>(v: &Vault<BASE>): u64 { v.live_cetus_last_snapshot_ts_ms }
 public fun live_cetus_last_action_code<BASE>(v: &Vault<BASE>): u64 { v.live_cetus_last_action_code }
+public fun live_cetus_action_open(): u64 { LIVE_CETUS_ACTION_OPEN }
+public fun live_cetus_action_hold(): u64 { LIVE_CETUS_ACTION_HOLD }
+public fun live_cetus_action_close(): u64 { LIVE_CETUS_ACTION_CLOSE }
+public fun live_cetus_action_add(): u64 { LIVE_CETUS_ACTION_ADD }
+public fun live_cetus_action_remove(): u64 { LIVE_CETUS_ACTION_REMOVE }
 public fun last_rebalance_used_flash<BASE>(v: &Vault<BASE>): bool { v.last_rebalance_used_flash }
 public fun deployed_balance<BASE>(v: &Vault<BASE>): u64 { total_deployed_internal(v) }
 
@@ -875,6 +992,18 @@ public fun cycle<BASE>(
     clock: &clock::Clock,
     ctx: &mut TxContext,
 ): (u64, option::Option<coin::Coin<BASE>>) {
+    cycle_with_confidence(v, q, cfg, spot_price, 0, clock, ctx)
+}
+
+public fun cycle_with_confidence<BASE>(
+    v: &mut Vault<BASE>,
+    q: &mut queue::WithdrawalQueue,
+    cfg: &config::Config,
+    spot_price: u64,
+    confidence_bps: u64,
+    clock: &clock::Clock,
+    ctx: &mut TxContext,
+): (u64, option::Option<coin::Coin<BASE>>) {
     assert_vault_synced(v);
 
     let needed = math::safe_add(
@@ -884,11 +1013,12 @@ public fun cycle<BASE>(
     unwind_to_cover_liquidity(v, needed);
 
     let ts_ms = clock::timestamp_ms(clock);
-    let (moved, bounty) = vault::cycle(
+    let (moved, bounty) = vault::cycle_with_confidence(
         &mut v.state,
         queue::state_mut(q),
         &mut v.oracle,
         spot_price,
+        confidence_bps,
         ts_ms,
         config::min_cycle_interval_ms(cfg),
         config::min_snapshot_interval_ms(cfg),
@@ -944,6 +1074,24 @@ public fun cycle_entry<BASE>(
     };
 }
 
+public fun cycle_with_confidence_entry<BASE>(
+    v: &mut Vault<BASE>,
+    q: &mut queue::WithdrawalQueue,
+    cfg: &config::Config,
+    spot_price: u64,
+    confidence_bps: u64,
+    clock: &clock::Clock,
+    ctx: &mut TxContext,
+) {
+    let (_, bounty_opt) = cycle_with_confidence(v, q, cfg, spot_price, confidence_bps, clock, ctx);
+    if (option::is_some(&bounty_opt)) {
+        let bounty = option::destroy_some(bounty_opt);
+        transfer::public_transfer(bounty, tx_context::sender(ctx));
+    } else {
+        option::destroy_none(bounty_opt);
+    };
+}
+
 public fun sync_live_yield_deposit_entry<BASE>(
     v: &mut Vault<BASE>,
     cfg: &config::Config,
@@ -989,4 +1137,20 @@ public fun deploy_for_testing<BASE>(v: &mut Vault<BASE>, amount: u64) {
     vault::set_treasury_usdc_for_testing(&mut v.state, balance::value(&v.treasury));
     v.cetus_deployed_usdc = balance::value(&v.cetus_balance);
     assert_vault_synced(v);
+}
+
+#[test_only]
+public fun apply_guarded_normal_cycle_for_testing<BASE>(
+    v: &mut Vault<BASE>,
+    effective_volatility_bps: u64,
+    queue_pressure_bps: u64,
+    reserve_target_usdc: u64,
+) {
+    vault::apply_cycle_regime_with_guards(
+        &mut v.state,
+        &types::regime_normal(),
+        effective_volatility_bps,
+        queue_pressure_bps,
+        reserve_target_usdc,
+    );
 }

@@ -209,11 +209,12 @@ Most on-chain vaults optimize only for yield. This one optimizes for **yield + l
 ## Current Status
 
 ```text
-P1  Core modules + unit tests                  [DONE]
+P1  Core modules + unit tests                   [DONE]
 P2  Strategy orchestration + adapter accounting [DONE]
 P3  Lifecycle + concurrency + safety tests      [DONE locally]
 P4  Deployment readiness artifacts              [DONE]
-P5  Live testnet integration                    [IN PROGRESS: smoke OK]
+P5  Live integration + sign-off evidence        [DONE]
+R1  Final immutable release closure             [OPEN]
 ```
 
 What is included now:
@@ -224,11 +225,16 @@ What is included now:
 - event surface for monitoring and alerting
 - deploy / monitor / demo scripts for operator workflows
 - funded testnet smoke path completed with `deposit + 12 cycles`
-- local Move validation now sits at `106/106 PASS` and `95.57%` overall coverage
+- latest local Move validation on `2026-03-09` sits at `170/170 PASS` and `94.85%` overall coverage
 - local Cetus wrapper tests now cover `open / add / remove / swap / amount` flows
 - explicit live LP helper path now includes `open_position_into_vault / rebalance_live / close_stored_position_from_vault`
 - `cetus_live` now also has a `cycle_live` path that can auto-close a stored live Position under stress / queue pressure when the operator passes the real pool objects
+- `StrategyPlannedEvent` now carries LP reason / queue-pressure / oracle snapshot metadata alongside the planner actions
+- planned Cetus executor wrappers now exist for operator-safe `open / add / remove / close` execution with preflight assertions and metadata post-sync
+- oracle logic now supports confidence-aware effective volatility and hysteresis-aware regime classification
+- restore logic now uses guarded `OnlyUnwind` recovery instead of a blind safe-cycle counter
 - `scripts/cetus_cycle_live_probe.py` now proves the queue-pressure `cycle_live` branch on real testnet objects and checks that `CetusPositionClosedEvent` lands before `CycleEvent`
+- P5 technical closure is now treated as complete; the remaining gap is final immutable release closure rather than missing core live evidence
 - vault now persists live Cetus metadata for `open -> hold snapshot -> close`
 - a real `Scallop` supply probe script now exists: `python scripts/scallop_supply_probe.py --help`
 - latest Scallop mainnet proof succeeded: `depositQuick -> query -> withdrawQuick` now has a real archived report under `out/reports/scallop_supply_probe_20260307T120021Z.json`
@@ -248,6 +254,7 @@ What is still intentionally out of scope for this repo snapshot:
 Quick external-reader docs:
 
 - `ASSURANCE_BOARD.md`
+- `docs/P5_CLOSURE.md`
 - `docs/INVESTOR_STATUS_BRIEF.md`
 - `docs/EVIDENCE_BOARD.md`
 - `docs/RUNBOOK.md`
@@ -491,24 +498,27 @@ In other words: the repo is **deployment-ready**, but the final mainnet transact
 
 ## Testing Snapshot
 
-Latest local validation after the coverage + wrapper sprint:
+Last verified: `2026-03-09`
 
-- `sui move test` -> `84/84 PASS`
-- `sui move coverage summary` -> `95.60%` overall
-- key module snapshot -> `entrypoints 95.72%`, `queue 96.34%`, `oracle 95.44%`, `vault 93.89%`, `cetus_amm 88.63%`
+Latest local validation:
+
+- `sui move test` -> `170/170 PASS`
+- `sui move coverage summary` -> `94.85%` overall
+- key module snapshot -> `cetus_live 89.38%`, `entrypoints 95.98%`, `vault 93.49%`, `queue 95.62%`, `oracle 99.61%`, `yield_source 97.31%`, `cetus_amm 88.63%`
 - live-integration risk still matters more than raw local coverage, especially around real shared objects and operator flows
 - latest live testnet validation on `2026-03-07`: `testnet_cycle_smoke.py --manifest out/deployments/testnet_smoke.json` returned `status=ok`, completed another `deposit + 12 cycles`, and `monitor_sui.py` reported `OK: no alert thresholds triggered`
 
-Coverage progress from this sprint:
+Current truth boundary:
 
-| Area | Before | After |
-|---|---:|---:|
-| Total coverage | 92.91% | 95.60% |
-| Total tests | 73 | 84 |
-| `entrypoints` | 90.87% | 95.72% |
-| `queue` | 92.39% | 96.34% |
-| `oracle` | 91.23% | 95.44% |
-| `vault` | 93.26% | 93.89% |
+- local validation is still strong, but overall coverage is currently back below the repo's `>= 95%` fundraising target after the latest live-LP state-machine expansion
+- local validation does not replace real shared-object state-machine evidence
+- current investor-facing proof still comes primarily from the archived testnet / mainnet reports under `out/reports/`
+
+See also:
+
+- `docs/EVIDENCE_BOARD.md`
+- `docs/EXTERNAL_GUARDRAILS.md`
+- `docs/EVIDENCE_FRESHNESS_CHECKLIST.md`
 | `cetus_amm` | 88.63% | 88.63% |
 
 Testing pyramid used in this repo:

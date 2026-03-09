@@ -65,7 +65,7 @@ fun only_unwind_strategy_plan_zeroes_lp_and_hedge_targets() {
 
         let (lp_action, yield_action, hedge_action, target_lp, target_yield, target_hedge) = entrypoints::strategy_plan_actions_for_testing(&v, &q, &cfg);
         assert!(entrypoints::is_only_unwind_mode(&v), 0);
-        assert!(lp_action == types::strategy_action_close() || target_lp == 0, 0);
+        assert!(lp_action == types::lp_action_close() || target_lp == 0, 0);
         assert!(hedge_action == types::strategy_action_close() || target_hedge == 0, 0);
         assert!(target_lp == 0, 0);
         assert!(target_hedge == 0, 0);
@@ -77,6 +77,102 @@ fun only_unwind_strategy_plan_zeroes_lp_and_hedge_targets() {
         test_scenario::return_shared(v);
         test_scenario::return_shared(q);
         test_scenario::return_shared(cfg);
+    };
+
+    let _effects = test_scenario::end(scenario);
+}
+
+#[test]
+fun strategy_plan_lp_helper_reports_queue_pressure_reason() {
+    let admin = @0x1;
+    let mut scenario = test_scenario::begin(admin);
+    test_scenario::create_system_objects(&mut scenario);
+
+    {
+        let sdye_treasury = coin::create_treasury_cap_for_testing<sdye::SDYE>(test_scenario::ctx(&mut scenario));
+        entrypoints::bootstrap<usdc::USDC>(sdye_treasury, 0, 0, test_scenario::ctx(&mut scenario));
+    };
+    test_scenario::next_tx(&mut scenario, admin);
+
+    {
+        let mut clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let mut cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let cap = test_scenario::take_from_sender<config::AdminCap>(&scenario);
+
+        config::set_cetus_pool_id(&mut cfg, &cap, @0x111);
+        let usdc_in = coin::mint_for_testing<usdc::USDC>(10_000, test_scenario::ctx(&mut scenario));
+        let mut shares = entrypoints::deposit(&mut v, usdc_in, &clock, test_scenario::ctx(&mut scenario));
+        entrypoints::deploy_for_testing(&mut v, 9_000);
+        let withdraw_shares = coin::split(&mut shares, 9_000, test_scenario::ctx(&mut scenario));
+        let (_, base_opt) = entrypoints::request_withdraw(&mut v, &mut q, withdraw_shares, &clock, test_scenario::ctx(&mut scenario));
+        option::destroy_none(base_opt);
+        transfer::public_transfer(shares, admin);
+
+        let (lp_action, lp_reason, _, _, reserve_target, queue_pressure_bps) = entrypoints::strategy_plan_lp_for_testing(&v, &q, &cfg);
+        assert!(lp_action == types::lp_action_close() || lp_action == types::lp_action_hold() || lp_action == types::lp_action_remove(), 0);
+        assert!(lp_reason == types::strategy_reason_queue_pressure() || lp_reason == types::strategy_reason_target_shrink(), 0);
+        assert!(reserve_target > 0, 0);
+        assert!(queue_pressure_bps > 0, 0);
+
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+        test_scenario::return_to_sender(&scenario, cap);
+    };
+
+    let _effects = test_scenario::end(scenario);
+}
+
+#[test]
+fun cycle_keeps_lp_plan_open_when_no_position_even_if_balance_reached_target() {
+    let admin = @0x1;
+    let mut scenario = test_scenario::begin(admin);
+    test_scenario::create_system_objects(&mut scenario);
+
+    {
+        let sdye_treasury = coin::create_treasury_cap_for_testing<sdye::SDYE>(test_scenario::ctx(&mut scenario));
+        entrypoints::bootstrap<usdc::USDC>(sdye_treasury, 0, 0, test_scenario::ctx(&mut scenario));
+    };
+    test_scenario::next_tx(&mut scenario, admin);
+
+    {
+        let mut clock = test_scenario::take_shared<clock::Clock>(&scenario);
+        let mut v = test_scenario::take_shared<entrypoints::Vault<usdc::USDC>>(&scenario);
+        let mut q = test_scenario::take_shared<queue::WithdrawalQueue>(&scenario);
+        let mut cfg = test_scenario::take_shared<config::Config>(&scenario);
+        let cap = test_scenario::take_from_sender<config::AdminCap>(&scenario);
+
+        config::set_cetus_pool_id(&mut cfg, &cap, @0x111);
+
+        let usdc_in = coin::mint_for_testing<usdc::USDC>(10_000, test_scenario::ctx(&mut scenario));
+        let shares = entrypoints::deposit(&mut v, usdc_in, &clock, test_scenario::ctx(&mut scenario));
+        transfer::public_transfer(shares, admin);
+
+        let (lp_action_before, _, current_before, target_before, _, _) = entrypoints::strategy_plan_lp_for_testing(&v, &q, &cfg);
+        assert!(lp_action_before == types::lp_action_open(), 0);
+        assert!(current_before == 0, 0);
+        assert!(target_before > 0, 0);
+        assert!(!entrypoints::has_stored_cetus_position(&v), 0);
+
+        clock::set_for_testing(&mut clock, 1000);
+        let (_, bounty_opt) = entrypoints::cycle(&mut v, &mut q, &cfg, oracle::price_precision(), &clock, test_scenario::ctx(&mut scenario));
+        transfer_bounty_if_any(bounty_opt, admin);
+
+        // After cycle(), internal accounting may have moved LP balance up to the target.
+        // The live LP state machine still needs OPEN as long as no live position exists.
+        let (lp_action_after, _, current_after, target_after, _, _) = entrypoints::strategy_plan_lp_for_testing(&v, &q, &cfg);
+        assert!(lp_action_after == types::lp_action_open(), 0);
+        assert!(current_after == target_after, 0);
+        assert!(!entrypoints::has_stored_cetus_position(&v), 0);
+
+        test_scenario::return_shared(clock);
+        test_scenario::return_shared(v);
+        test_scenario::return_shared(q);
+        test_scenario::return_shared(cfg);
+        test_scenario::return_to_sender(&scenario, cap);
     };
 
     let _effects = test_scenario::end(scenario);
