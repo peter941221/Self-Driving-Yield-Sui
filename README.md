@@ -56,6 +56,34 @@ It is still not honest to present the repo as fully autonomous across every live
 
 ---
 
+## For Non-Technical Readers
+
+If you do not read Move code, the simplest explanation is:
+
+```text
+This project is trying to turn idle onchain treasury capital
+into a risk-managed yield engine.
+
+It does not just chase yield.
+It also protects withdrawal liquidity,
+reduces risk during stress,
+and leaves an evidence trail for what has truly been proven.
+```
+
+What makes this different from a normal yield strategy deck:
+
+- it already has real protocol execution evidence, not just simulations
+- it has an explicit safety mode called `OnlyUnwind`
+- it has a sealed release artifact, so the final testnet release is not a moving target
+- it uses formal verification and chaos engineering to check failure behavior, not only happy paths
+
+In plain language:
+
+- `formal verification` means mathematically checking critical rules so certain accounting and safety properties cannot silently drift
+- `chaos engineering` means deliberately forcing bad conditions to verify the system fails in controlled, observable ways
+
+---
+
 ## Investor Readiness
 
 Short answer:
@@ -93,6 +121,34 @@ queue pressure, and sealed-release discipline on Sui testnet.
 
 The remaining work is productization and operational depth,
 not whether the system can touch real protocols at all.
+```
+
+---
+
+## For Technical Readers
+
+If you are technical, the repo should be read as:
+
+```text
+shared-object vault
+  + FIFO withdrawal queue
+  + regime-aware reserve logic
+  + sealed config gate
+  + real-object LP / yield probes
+  + operator tooling around a testnet final candidate
+```
+
+The key technical claim is not "we wrote a vault."
+
+The key technical claim is:
+
+```text
+the vault logic,
+the release discipline,
+and the evidence archive
+have all been exercised together
+on a sealed candidate
+with honest boundary statements
 ```
 
 ---
@@ -232,6 +288,25 @@ The strongest honest one-liner today is:
 ## Evidence Ledger
 
 This section is the single-page answer to: "What is actually proven right now?"
+
+Before the itemized ledger, here is the credibility stack in one screen:
+
+```text
+[Local tests]
+   -> prove broad functional correctness
+
+[Formal verification]
+   -> prove selected accounting / reserve / restore invariants
+
+[Chaos engineering]
+   -> prove degraded paths and operator blockers are observable and replayable
+
+[Live testnet evidence]
+   -> prove the system can touch real external objects and survive queue pressure
+
+[Sealed release discipline]
+   -> prove the final candidate is archived, frozen, and reviewable
+```
 
 ### 1) Local correctness headline
 
@@ -397,10 +472,26 @@ What it proves:
 
 - the repo has explicit assurance layers beyond unit tests
 - blockers and degraded paths are replayable rather than hand-waved
+- critical accounting and reserve rules are not validated only by sample scenarios; selected invariants are machine-checked
+- operator failure modes are intentionally rehearsed, including no-events, RPC errors, malformed JSON, stale cycles, queue pressure, low gas, and external price-source paths
 
 What it does not prove:
 
 - current formal scope is not the same as full proof of all live shared-object paths
+
+Why this matters for diligence:
+
+- many early-stage vaults have backtests and happy-path demos
+- fewer have formal proofs for core accounting slices
+- fewer still have a maintained chaos harness that deliberately exercises failure reporting and operator blockers
+
+That is why the assurance story here should be presented as:
+
+```text
+not just "we tested it"
+but "we tested it, proved selected invariants,
+and rehearsed failure conditions"
+```
 
 ---
 
@@ -500,6 +591,15 @@ The important practical point:
 
 - live integration evidence matters more than one raw percentage
 - but the percentage still has to stay truthful
+
+Assurance headline for mixed audiences:
+
+- unit / integration coverage gives breadth
+- formal verification gives invariant depth
+- chaos engineering gives operational failure realism
+- live probes give real protocol contact
+
+Together, these four layers are the reason the README can support investor diligence instead of reading like a pure roadmap.
 
 ---
 
@@ -644,6 +744,18 @@ If you want deeper detail after that:
 - `docs/EVIDENCE_BOARD.md`
 - `docs/EXTERNAL_GUARDRAILS.md`
 - `docs/FINAL_RELEASE_RUNBOOK.md`
+
+Suggested reading by audience:
+
+- non-technical investor
+  - this README
+  - `docs/INVESTOR_STATUS_BRIEF.md`
+- technical investor / auditor
+  - this README
+  - `ASSURANCE_BOARD.md`
+  - `docs/EVIDENCE_BOARD.md`
+  - `docs/P5_CLOSURE.md`
+  - `docs/FINAL_RELEASE_RUNBOOK.md`
 
 ---
 
