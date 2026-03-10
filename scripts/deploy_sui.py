@@ -200,6 +200,12 @@ def main():
     parser.add_argument("--package-path", default=str(DEFAULT_PACKAGE_PATH), help="Path to the Move package")
     parser.add_argument("--min-cycle-interval-ms", type=int, default=0)
     parser.add_argument("--min-snapshot-interval-ms", type=int, default=0)
+    parser.add_argument("--pilot-bootstrap", action="store_true", help="Use entrypoints::bootstrap_pilot to enable operator gating + deposit guardrails from the first shared-object state")
+    parser.add_argument("--pilot-operator", default="", help="Operator address for Route A pilot gating (default: sender)")
+    parser.add_argument("--pilot-max-total-assets", type=int, default=0, help="TVL cap for deposits (0 means no cap)")
+    parser.add_argument("--pilot-allowlist-enabled", type=int, default=1, help="1/0: require allowlisted depositor addresses when enabled")
+    parser.add_argument("--pilot-deposits-paused", type=int, default=1, help="1/0: pause deposits at bootstrap (recommended for pilot until allowlist is configured)")
+    parser.add_argument("--pilot-allowlist", action="append", default=[], help="Repeatable allowlist address to add via AdminCap after bootstrap")
     parser.add_argument("--cetus-pool-id", default="0x0")
     parser.add_argument("--lending-market-id", default="0x0")
     parser.add_argument("--perps-market-id", default="0x0")
@@ -231,6 +237,7 @@ def main():
                 print_step("publish mode", f"force-publish after backing up {backup_path}")
         publish_cmd = [
             "sui", "client", "publish", ".",
+            "--build-env", env_name,
             "--gas-budget", str(args.gas_budget_publish),
             "--json",
         ]
@@ -244,11 +251,25 @@ def main():
     sdye_treasury_id = find_owned_object_id_by_type(owned_objects, f"TreasuryCap<{package_id}::sdye::SDYE>")
     print_step("sdye treasury", sdye_treasury_id)
 
+    bootstrap_function = "bootstrap"
+    bootstrap_args = [sdye_treasury_id, args.min_cycle_interval_ms, args.min_snapshot_interval_ms]
+    pilot_operator = ""
+    if args.pilot_bootstrap:
+        bootstrap_function = "bootstrap_pilot"
+        pilot_operator = normalize_address(args.pilot_operator) if args.pilot_operator else normalize_address(sender)
+        bootstrap_args.extend([
+            pilot_operator,
+            int(args.pilot_max_total_assets),
+            int(args.pilot_allowlist_enabled),
+            int(args.pilot_deposits_paused),
+        ])
+        print_step("pilot bootstrap", f"operator={pilot_operator} allowlist_enabled={int(args.pilot_allowlist_enabled)} deposits_paused={int(args.pilot_deposits_paused)} max_total_assets={int(args.pilot_max_total_assets)}")
+
     bootstrap_digest, bootstrap_tx = move_call(
         package_id,
         "entrypoints",
-        "bootstrap",
-        [sdye_treasury_id, args.min_cycle_interval_ms, args.min_snapshot_interval_ms],
+        bootstrap_function,
+        bootstrap_args,
         type_args=[args.base_type],
         gas_budget=args.gas_budget_call,
     )
@@ -265,6 +286,19 @@ def main():
     print_step("queue", queue_id)
     print_step("config", config_id)
     print_step("admin cap", admin_cap_id)
+
+    if args.pilot_bootstrap and args.pilot_allowlist:
+        for raw_addr in args.pilot_allowlist:
+            addr = normalize_address(raw_addr)
+            digest, _ = move_call(
+                package_id,
+                "entrypoints",
+                "pilot_add_allowlist_address_entry",
+                [vault_id, admin_cap_id, addr],
+                type_args=[args.base_type],
+                gas_budget=args.gas_budget_call,
+            )
+            print_step("pilot allowlist add", f"{addr} digest={digest}")
 
     setters = [
         ("set_cetus_pool_id", normalize_address(args.cetus_pool_id)),
@@ -320,6 +354,14 @@ def main():
         "git_commit": current_git_commit(),
         "min_cycle_interval_ms": args.min_cycle_interval_ms,
         "min_snapshot_interval_ms": args.min_snapshot_interval_ms,
+        "pilot": {
+            "enabled": bool(args.pilot_bootstrap),
+            "operator": pilot_operator,
+            "max_total_assets": int(args.pilot_max_total_assets),
+            "allowlist_enabled": int(args.pilot_allowlist_enabled),
+            "deposits_paused": int(args.pilot_deposits_paused),
+            "allowlist": [normalize_address(a) for a in args.pilot_allowlist] if args.pilot_allowlist else [],
+        },
         "cetus_pool_id": normalized_cetus_pool_id,
         "lending_market_id": normalized_lending_market_id,
         "perps_market_id": normalized_perps_market_id,

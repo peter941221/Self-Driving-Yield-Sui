@@ -1,0 +1,43 @@
+{
+  "network": "mainnet",
+  "sender": "0xea50d9777e47fbbe875f355e3f10b653065c7617bb3b00c2ebf1f40950cb8120",
+  "base_type": "0x2::sui::SUI",
+  "package_id": "0x095246ae1b6095d01225f07cf8d691b92b6c3238f0013a4b4cce3882fa31ec00",
+  "vault_id": "0x0fdbb8d059b1ff08587b78f0822eed6600c221663b19f1b7ddcc2fd635fbfd60",
+  "queue_id": "0x13b38e171694a912695b1896dbb1c921955ccb30dbd21b4f8edae9cdd83a8b5b",
+  "config_id": "0x4dfc0e7bfa696cddcfac07b4cde2fa8215ef89cfb5ffc92919b1f047ce5c960d",
+  "admin_cap_id": "0x47f075b9ab6a065f5ceb31f3c4106ef0be0b454b68ff4364a76851169fd2a158",
+  "publish_digest": "2y17ieQEvVfdQwdbbNxLn4RyvYUCaW6XvbAceR7ytUwY",
+  "bootstrap_digest": "HYANCi5E542gASMJhM7zJ9WTED9Mxt1eZP6sHaEgSSJS",
+  "seal_digest": "8nwBfAeKJoxdZBDTzTHgi21wYbTTTSqHNnN5ZhN2CpCD",
+  "published_at_utc": "2026-03-10T01:52:25+00:00",
+  "git_commit": "c2216daf67068b5c3c04f448c180a5e9c5af156c",
+  "min_cycle_interval_ms": 0,
+  "min_snapshot_interval_ms": 0,
+  "pilot": {
+    "enabled": true,
+    "operator": "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "max_total_assets": 1000000000000,
+    "allowlist_enabled": 1,
+    "deposits_paused": 0,
+    "allowlist": [
+      "0x2222222222222222222222222222222222222222222222222222222222222222"
+    ]
+  },
+  "cetus_pool_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "lending_market_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "perps_market_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "flashloan_provider_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "sealed": true,
+  "config": {
+    "min_cycle_interval_ms": 0,
+    "min_snapshot_interval_ms": 0,
+    "cetus_pool_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "lending_market_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "perps_market_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "flashloan_provider_id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "sealed": true
+  },
+  "applied_setters": {},
+  "upgrade_cap_id": "0x7b12cc80c5d838870677c9fde62ad71dc4d1abfe916d5e728f9654d95cd567f4"
+}

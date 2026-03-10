@@ -4,6 +4,42 @@
 [move]
 version = 4
 
+[pinned.mainnet.CetusClmm]
+source = { git = "https://github.com/CetusProtocol/cetus-contracts.git", subdir = 'packages\cetus_clmm', rev = "c7e13bb147ce324396a3dc9f215be5e21cd8081f" }
+use_environment = "mainnet"
+manifest_digest = "1E932E9C4C15B3E671C5AACEE3107A26421CD5F431977EB48BE64EF5BE1AD9CA"
+deps = { IntegerMate = "IntegerMate", MoveSTL = "MoveSTL", std = "MoveStdlib", sui = "Sui" }
+
+[pinned.mainnet.IntegerMate]
+source = { git = "https://github.com/CetusProtocol/integer-mate.git", subdir = ".", rev = "09a12d9b171122883d9350039d4ed6e8400033b9" }
+use_environment = "mainnet"
+manifest_digest = "E41BBD67BE8940D26C79D78B028477EF5B33BA217A1282C78ACB344CF8A5ECF6"
+deps = { std = "MoveStdlib", sui = "Sui" }
+
+[pinned.mainnet.MoveSTL]
+source = { git = "https://github.com/CetusProtocol/move-stl.git", subdir = ".", rev = "0681fec63a310ae753d03a06f7c05d3e2925bb09" }
+use_environment = "mainnet"
+manifest_digest = "E41BBD67BE8940D26C79D78B028477EF5B33BA217A1282C78ACB344CF8A5ECF6"
+deps = { std = "MoveStdlib", sui = "Sui" }
+
+[pinned.mainnet.MoveStdlib]
+source = { git = "https://github.com/MystenLabs/sui.git", subdir = 'crates\sui-framework\packages\move-stdlib', rev = "b38bca86f0323b3fe8b6b7f4ca0cd7ae7faebe4b" }
+use_environment = "mainnet"
+manifest_digest = "C4FE4C91DE74CBF223B2E380AE40F592177D21870DC2D7EB6227D2D694E05363"
+deps = {}
+
+[pinned.mainnet.SelfDrivingYield]
+source = { root = true }
+use_environment = "mainnet"
+manifest_digest = "F573DC52BDE70E727A6DEC0B5B3360D3E36ECEB867FB83CE4F1BE840B6B5A337"
+deps = { CetusClmm = "CetusClmm", std = "MoveStdlib", sui = "Sui" }
+
+[pinned.mainnet.Sui]
+source = { git = "https://github.com/MystenLabs/sui.git", subdir = 'crates\sui-framework\packages\sui-framework', rev = "b38bca86f0323b3fe8b6b7f4ca0cd7ae7faebe4b" }
+use_environment = "mainnet"
+manifest_digest = "CD547CB1ACCE0880C835DAED2D8FFCB91D56C833AE5240D3AA5B918398263195"
+deps = { MoveStdlib = "MoveStdlib" }
+
 [pinned.testnet.CetusClmm]
 source = { git = "https://github.com/CetusProtocol/cetus-contracts.git", subdir = "packages/cetus_clmm", rev = "0a90d59cef9fa86485d81b11cb07a651d76ed360" }
 use_environment = "testnet"
