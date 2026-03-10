@@ -7,11 +7,11 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Platform-Sui%20Move-yellow?style=for-the-badge" alt="Platform">
   <img src="https://img.shields.io/badge/Stage-P5%20Technical%20Closure-brightgreen?style=for-the-badge" alt="Stage">
-  <img src="https://img.shields.io/badge/Release-Final%20Immutable%20Ready-brightgreen?style=for-the-badge" alt="Release">
+  <img src="https://img.shields.io/badge/Release-Mainnet%20Pilot%20Active-brightgreen?style=for-the-badge" alt="Release">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License">
 </p>
 
-Last verified: `2026-03-09`
+Last verified: `2026-03-10`
 
 ---
 
@@ -32,6 +32,8 @@ The important point is not the design alone.
 
 The repo already has real protocol evidence:
 
+- **real mainnet pilot deployment with operator guardrails**
+- **real mainnet end-to-end deposit, cycle, and withdraw request flow**
 - real testnet lifecycle smoke
 - real Cetus external-object `open -> close`
 - a shared vault holding a real Cetus `Position` across transactions
@@ -45,12 +47,11 @@ The honest current conclusion is:
 
 ```text
 P5 technical closure = yes
-final immutable release readiness = yes
+Mainnet Pilot (Route A) = active
 ```
 
-This is enough for technical diligence, investor conversations, and a truthful final immutable release-readiness claim on testnet.
-It is still not honest to present the repo as fully autonomous across every live leg or as having live perps execution today.
-
+This is enough for technical diligence, investor conversations, and a truthful pilot release claim on mainnet.
+It is still not honest to present the repo as fully autonomous across every live leg or as having a trustless public launch today.
 ---
 
 ## For Non-Technical Readers
@@ -86,15 +87,15 @@ In plain language:
 Current external positioning:
 
 ```text
-sealed testnet release candidate
-with real LP + yield evidence
-and explicit operational boundaries
+mainnet pilot (route A) deployed
+with real LP + yield evidence on testnet
+and explicit operational boundaries on mainnet
 ```
 
 Why this positioning is already defensible:
 
 - the repo is no longer a design-only strategy doc
-- there is a sealed final candidate on testnet
+- there is a real, guarded mainnet pilot with operator, TVL, and allowlist controls enabled
 - there is real Cetus live-object evidence
 - there is real native staking evidence
 - there is one real DeFi lending proof via Scallop
@@ -102,8 +103,8 @@ Why this positioning is already defensible:
 
 What should not be implied:
 
-- fully autonomous across every live leg
-- mainnet-ready launch next week
+- fully autonomous across every live leg on mainnet
+- trustless public mainnet launch today
 - perps is already live
 - every adapter is already same-network automated
 
@@ -111,10 +112,12 @@ Recommended diligence summary:
 
 ```text
 We already proved the hard part:
-this vault can survive real object-level execution,
-queue pressure, and sealed-release discipline on Sui testnet.
+this vault can survive real object-level execution, queue pressure,
+and sealed-release discipline.
+We have just deployed our first Mainnet Pilot to validate
+the core loop in a controlled environment.
 
-The remaining work is productization and operational depth,
+The remaining work is productization, oralce decentralization, and operational depth,
 not whether the system can touch real protocols at all.
 ```
 
@@ -273,10 +276,11 @@ Main modules:
 | `P4` deploy / monitor / release artifacts | `DONE` | deploy, monitor, demo, release docs exist |
 | `P5` live integration evidence | `DONE` | real LP and yield proof paths exist |
 | `R1` final immutable release closure | `DONE` | sealed final candidate + same-package live evidence + ready dry-run are archived |
+| `R2` mainnet pilot (Route A) | `DONE` | live on mainnet with operator gating, TVL cap, and allowlist enabled |
 
 The strongest honest one-liner today is:
 
-> We now have a sealed final release candidate on testnet with real LP/yield evidence and a clean release-readiness archive.
+> We now have an active, guarded Mainnet Pilot with real live proof of the core loop and an uncompromised evidence trail.
 
 ---
 
@@ -518,13 +522,14 @@ sealed testnet release candidate
 
 ## Release Status
 
-This repo deliberately separates `P5 complete` from `release-ready`.
+This repo deliberately separates `P5 complete` from `release-ready` and `public-launch`.
 
 Current release truth:
 
 ```text
 P5 technical closure = yes
-final immutable release readiness = yes
+Mainnet Pilot (Route A) = active
+Public Launch (Route B) = pending audit & oracle decentralization
 ```
 
 What is already done:
@@ -532,24 +537,20 @@ What is already done:
 - deploy / bootstrap / monitor / demo scripts exist
 - `config.seal()` is implemented as a release gate
 - setter behavior after `seal()` is covered by fail-closed tests
-- final publish candidate is sealed with non-zero `cetus_pool_id` and non-zero `lending_market_id`
-- same-package live evidence was replayed on the sealed candidate
-- final release dry-run passed with a clean git worktree
+- **The system has been successfully deployed to Mainnet under strict pilot controls (Operator gate, Allowlist, TVL Cap).**
 
 Final release artifacts:
 
-- sealed source manifest:
-  - `out/deployments/testnet_final_release_v2.json`
-- normalized release candidate manifest:
+- Mainnet Pilot Manifest (with Operator and TVL controls):
+  - `out/deployments/mainnet_pilot.json`
+- Testnet release candidate manifest:
   - `out/deployments/testnet_final_release_v2_final_release_candidate.json`
-- dry-run report:
-  - `out/reports/final_release_dry_run_20260309T1232Z.json`
 
-What this final immutable release claim means:
+What this pilot release claim means:
 
 - the release artifact is sealed and archived
-- the release artifact has live LP and live yield evidence on the same package
-- the claim is about immutable release discipline on testnet, not about every future adapter being fully autonomous
+- we have validated the end-to-end user loop (deposit, queue, cycle, claim) on mainnet using real gas and RPCs
+- the claim is about a controlled live execution phase, not about untrusted retail availability
 
 ---
 
