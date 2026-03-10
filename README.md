@@ -815,6 +815,7 @@ This repo is no longer a paper-only strategy design.
 It already shows:
 
 - strong local correctness
+- **real mainnet pilot execution**
 - real testnet lifecycle evidence
 - real Cetus live-object evidence
 - real vault-held Position evidence
@@ -823,11 +824,11 @@ It already shows:
 - first real DeFi lending proof
 - explicit blocker discipline where proof does not yet exist
 
-The remaining gap is not "can this repo touch real protocols at all?"
+The remaining gap is not "can this repo touch real protocols at all?" 
 
 The remaining gap is:
 
 ```text
 turning proven live paths into a more productized,
-release-disciplined execution state machine
+trustless public launch with decentralized oracles and external audits
 ```
