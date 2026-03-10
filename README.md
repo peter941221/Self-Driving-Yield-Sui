@@ -52,6 +52,7 @@ Mainnet Pilot (Route A) = active
 
 This is enough for technical diligence, investor conversations, and a truthful pilot release claim on mainnet.
 It is still not honest to present the repo as fully autonomous across every live leg or as having a trustless public launch today.
+
 ---
 
 ## For Non-Technical Readers
