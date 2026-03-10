@@ -300,14 +300,37 @@ Before the itemized ledger, here is the credibility stack in one screen:
 [Chaos engineering]
    -> prove degraded paths and operator blockers are observable and replayable
 
-[Live testnet evidence]
-   -> prove the system can touch real external objects and survive queue pressure
+[Live testnet evidence & Mainnet Pilot]
+   -> prove the system can touch real external objects, survive queue pressure, and operate safely on mainnet
 
 [Sealed release discipline]
    -> prove the final candidate is archived, frozen, and reviewable
 ```
 
-### 1) Local correctness headline
+### 1) Mainnet Pilot (Route A) End-to-End Loop
+
+- network: `mainnet`
+- pilot package: `0x095246ae1b6095d01225f07cf8d691b92b6c3238f0013a4b4cce3882fa31ec00`
+- pilot vault: `0x0fdbb8d059b1ff08587b78f0822eed6600c221663b19f1b7ddcc2fd635fbfd60`
+- pilot guardrails enabled: `Operator-only, TVL Capped (1,000,000,000,000), Allowlist-gated`
+- archived manifest: `out/deployments/mainnet_pilot.json`
+- key loop proofs (executed with real mainnet SUI):
+  - **Deposit**: `AwP2A4MS2XXRrSGxxpabZnFHbxH48St81fVn9qgCMbGU`
+  - **Oracle & Rebalance Cycle**: `C297AmGszMWNJc5ET9TvzC5tpV2NV6TwzKYg1cygCTjJ`
+  - **Withdraw Request (Queued)**: `8kQoQEEw8VsA1pSogSqtAnrZ9hScJMqsUfCPXpgDUXc6`
+  - **Ready Claim Cycle**: `2zzeEvswfJEzaker6uNREUdJCjen62jtZKEp1MPDQyEk`
+
+What it proves:
+
+- the codebase is not a theory; it is actively running and managing real state on the Sui Mainnet.
+- the pilot safety guardrails successfully restrict access while allowing the core team to test real protocol plumbing.
+- the core FIFO queue and cycle bookkeeping flawlessly handled real network transactions.
+
+What it does not prove:
+
+- it is not yet a public launch (Route B) open to retail deposits.
+
+### 2) Local correctness headline
 
 - `170 / 170 PASS`
 - `94.91%` overall Move coverage
